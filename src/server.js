@@ -38,6 +38,32 @@ app.get('/', (req, res) => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
+// 0. SMS RELAY — proxies Textbelt so the browser never calls it directly
+// (Textbelt blocks browser-origin requests via CORS; routing through this
+// server avoids that entirely since server-to-server calls aren't subject
+// to CORS.)
+// ═══════════════════════════════════════════════════════════════════════════
+app.post('/send-sms', async (req, res) => {
+  try {
+    const { phone, message } = req.body;
+    if (!phone || !message) {
+      return res.status(400).json({ error: 'phone and message are required.' });
+    }
+    const textbeltKey = process.env.TEXTBELT_KEY || 'textbelt';
+    const r = await fetch('https://textbelt.com/text', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phone, message, key: textbeltKey }),
+    });
+    const data = await r.json();
+    res.json(data);
+  } catch (err) {
+    console.error('send-sms error:', err.message);
+    res.status(500).json({ error: 'Could not send SMS.' });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
 // 1. CUSTOMER PAYMENT — charge a card for a completed job
 // ═══════════════════════════════════════════════════════════════════════════
 app.post('/create-payment-intent', async (req, res) => {
