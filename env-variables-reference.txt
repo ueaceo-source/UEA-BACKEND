@@ -1,0 +1,27 @@
+# ─── STRIPE ───────────────────────────────────────────────────────────────
+# Get these from Stripe Dashboard → Developers → API keys
+# Use sk_live_... since you're running in live mode
+STRIPE_SECRET_KEY=sk_live_PASTE_YOUR_SECRET_KEY_HERE
+
+# Get this AFTER setting up the webhook (Step 4 in setup instructions)
+STRIPE_WEBHOOK_SECRET=whsec_PASTE_AFTER_WEBHOOK_SETUP
+
+# ─── SUPABASE ─────────────────────────────────────────────────────────────
+# Same project you're already using
+SUPABASE_URL=https://vdhcnrnubcdbzpxwthro.supabase.co
+
+# IMPORTANT: This is the SERVICE ROLE key, NOT the anon key.
+# Find it in Supabase: Settings → API → service_role key (starts with eyJ...)
+# This key bypasses Row Level Security so the backend can write payment
+# results — NEVER expose this key in the browser/theme.liquid, only here.
+SUPABASE_SERVICE_KEY=PASTE_YOUR_SERVICE_ROLE_KEY_HERE
+
+# ─── APP CONFIG ───────────────────────────────────────────────────────────
+# Your Shopify store URL (for CORS — only this domain can call the backend)
+ALLOWED_ORIGIN=https://upperechelonautomotive.com
+
+# Business rules (must match theme.liquid CONFIG values)
+TECH_PAYOUT_PCT=65
+MEMBERSHIP_PRICE_CENTS=1999
+
+PORT=3000
