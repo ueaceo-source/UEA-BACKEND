@@ -1,457 +1,764 @@
-// ═══════════════════════════════════════════════════════════════════════════
-// UPPER ECHELON AUTOMOTIVE — PAYMENT & PAYOUT BACKEND
-// Handles: customer card payments, technician Stripe Connect payouts,
-// $19.99/mo membership subscriptions, and Stripe webhooks.
-//
-// SECURITY NOTE: This server holds your Stripe SECRET key and Supabase
-// SERVICE ROLE key. Both bypass normal safety checks. Never expose this
-// code's environment variables anywhere public, and never run this in
-// the browser — it only runs on Render.com as a private server.
-// ═══════════════════════════════════════════════════════════════════════════
-
+'use strict';
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const Stripe = require('stripe');
 const { createClient } = require('@supabase/supabase-js');
+const nodemailer = require('nodemailer');
+const multer = require('multer');
+const path = require('path');
 
 const app = express();
+const PORT = process.env.PORT || 3000;
+
+// ── Stripe ──────────────────────────────────────────────────────────────────
 const stripe = Stripe(process.env.STRIPE_SECRET_KEY);
-const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_KEY);
 
-const TECH_PAYOUT_PCT = Number(process.env.TECH_PAYOUT_PCT || 65);
-const MEMBERSHIP_PRICE_CENTS = Number(process.env.MEMBERSHIP_PRICE_CENTS || 1999);
-const ALLOWED_ORIGIN = process.env.ALLOWED_ORIGIN || '*';
+// ── Supabase ─────────────────────────────────────────────────────────────────
+const supabase = createClient(
+  process.env.SUPABASE_URL,
+  process.env.SUPABASE_SERVICE_KEY   // service key for storage uploads
+);
 
-// ── CORS: only allow your Shopify store to call this API ───────────────────
-app.use(cors({ origin: ALLOWED_ORIGIN }));
-
-// Stripe webhooks need the RAW body (not JSON-parsed) to verify signatures,
-// so this route is registered BEFORE the global express.json() middleware.
-app.post('/webhook', express.raw({ type: 'application/json' }), handleWebhook);
-
-app.use(express.json());
-
-// ── Health check (useful for confirming Render deployment worked) ──────────
-app.get('/', (req, res) => {
-  res.json({ status: 'ok', service: 'Upper Echelon Automotive Backend', time: new Date().toISOString() });
+// ── Nodemailer (Gmail / Google Workspace) ────────────────────────────────────
+const transporter = nodemailer.createTransport({
+  service: 'gmail',
+  auth: {
+    user: process.env.EMAIL_FROM,          // ueaceo@ueauto.store
+    pass: process.env.GMAIL_APP_PASSWORD,  // 16-char app password
+  },
 });
 
-// ═══════════════════════════════════════════════════════════════════════════
-// 0. SMS RELAY — proxies Textbelt so the browser never calls it directly
-// (Textbelt blocks browser-origin requests via CORS; routing through this
-// server avoids that entirely since server-to-server calls aren't subject
-// to CORS.)
-// ═══════════════════════════════════════════════════════════════════════════
-app.post('/send-sms', async (req, res) => {
+async function sendEmail({ to, subject, html, text }) {
   try {
-    const { phone, message } = req.body;
-    if (!phone || !message) {
-      return res.status(400).json({ error: 'phone and message are required.' });
-    }
-    const textbeltKey = process.env.TEXTBELT_KEY || 'textbelt';
-    const r = await fetch('https://textbelt.com/text', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ phone, message, key: textbeltKey }),
+    await transporter.sendMail({
+      from: `"Upper Echelon Automotive" <${process.env.EMAIL_FROM}>`,
+      to,
+      subject,
+      html,
+      text,
     });
-    const data = await r.json();
-    res.json(data);
+    console.log(`[Email] Sent to ${to}: ${subject}`);
   } catch (err) {
-    console.error('send-sms error:', err.message);
-    res.status(500).json({ error: 'Could not send SMS.' });
+    console.error('[Email] Failed:', err.message);
+  }
+}
+
+// ── Email Templates ──────────────────────────────────────────────────────────
+const EMAIL = {
+  // Shared header/footer
+  wrap(body) {
+    return `
+    <div style="font-family:Inter,sans-serif;background:#0A0A0F;color:#F5F0E8;max-width:600px;margin:0 auto;padding:32px 24px;border-radius:12px;">
+      <div style="text-align:center;margin-bottom:28px;">
+        <p style="font-family:serif;font-size:22px;color:#C9A84C;font-weight:700;margin:0;">UPPER ECHELON AUTOMOTIVE</p>
+        <p style="font-size:11px;color:rgba(245,240,232,0.5);letter-spacing:0.15em;text-transform:uppercase;margin:4px 0 0;">Austin's Mobile Diagnostic Specialist</p>
+      </div>
+      ${body}
+      <div style="border-top:1px solid rgba(201,168,76,0.2);margin-top:32px;padding-top:20px;text-align:center;">
+        <p style="font-size:12px;color:rgba(245,240,232,0.4);margin:0;">Upper Echelon Automotive · Austin, TX · (251) 289-0740</p>
+        <p style="font-size:12px;color:rgba(245,240,232,0.4);margin:4px 0 0;">ueauto.store</p>
+      </div>
+    </div>`;
+  },
+
+  bookingCustomer({ name, vehicle, service, date, time, location, rush }) {
+    return this.wrap(`
+      <h2 style="color:#C9A84C;font-size:20px;margin:0 0 16px;">Booking Request Received ✓</h2>
+      <p style="color:rgba(245,240,232,0.8);margin:0 0 20px;">Hi ${name}, we received your booking request. We'll review and confirm shortly — you'll get another email once it's approved.</p>
+      <div style="background:rgba(201,168,76,0.08);border:1px solid rgba(201,168,76,0.25);border-radius:8px;padding:20px;margin-bottom:20px;">
+        <table style="width:100%;border-collapse:collapse;">
+          <tr><td style="padding:6px 0;color:rgba(245,240,232,0.5);font-size:13px;width:40%;">Vehicle</td><td style="padding:6px 0;color:#F5F0E8;font-size:13px;">${vehicle}</td></tr>
+          <tr><td style="padding:6px 0;color:rgba(245,240,232,0.5);font-size:13px;">Service</td><td style="padding:6px 0;color:#F5F0E8;font-size:13px;">${service}</td></tr>
+          <tr><td style="padding:6px 0;color:rgba(245,240,232,0.5);font-size:13px;">Date</td><td style="padding:6px 0;color:#F5F0E8;font-size:13px;">${date}</td></tr>
+          <tr><td style="padding:6px 0;color:rgba(245,240,232,0.5);font-size:13px;">Time</td><td style="padding:6px 0;color:#F5F0E8;font-size:13px;">${time}</td></tr>
+          <tr><td style="padding:6px 0;color:rgba(245,240,232,0.5);font-size:13px;">Location</td><td style="padding:6px 0;color:#F5F0E8;font-size:13px;">${location}</td></tr>
+          ${rush ? `<tr><td style="padding:6px 0;color:rgba(245,240,232,0.5);font-size:13px;">Rush</td><td style="padding:6px 0;color:#fbbf24;font-size:13px;">Yes (+$100 rush fee)</td></tr>` : ''}
+        </table>
+      </div>
+      <p style="color:rgba(245,240,232,0.6);font-size:13px;">Questions? Call or text us at (251) 289-0740.</p>
+    `);
+  },
+
+  bookingAdmin({ name, email, phone, vehicle, service, date, time, location, rush, estimatedPrice }) {
+    return this.wrap(`
+      <h2 style="color:#C9A84C;font-size:20px;margin:0 0 16px;">🔔 New Booking — Action Required</h2>
+      <div style="background:rgba(201,168,76,0.08);border:1px solid rgba(201,168,76,0.25);border-radius:8px;padding:20px;margin-bottom:20px;">
+        <table style="width:100%;border-collapse:collapse;">
+          <tr><td style="padding:6px 0;color:rgba(245,240,232,0.5);font-size:13px;width:40%;">Customer</td><td style="padding:6px 0;color:#F5F0E8;font-size:13px;">${name}</td></tr>
+          <tr><td style="padding:6px 0;color:rgba(245,240,232,0.5);font-size:13px;">Email</td><td style="padding:6px 0;color:#F5F0E8;font-size:13px;">${email}</td></tr>
+          <tr><td style="padding:6px 0;color:rgba(245,240,232,0.5);font-size:13px;">Phone</td><td style="padding:6px 0;color:#F5F0E8;font-size:13px;">${phone}</td></tr>
+          <tr><td style="padding:6px 0;color:rgba(245,240,232,0.5);font-size:13px;">Vehicle</td><td style="padding:6px 0;color:#F5F0E8;font-size:13px;">${vehicle}</td></tr>
+          <tr><td style="padding:6px 0;color:rgba(245,240,232,0.5);font-size:13px;">Service</td><td style="padding:6px 0;color:#F5F0E8;font-size:13px;">${service}</td></tr>
+          <tr><td style="padding:6px 0;color:rgba(245,240,232,0.5);font-size:13px;">Date</td><td style="padding:6px 0;color:#F5F0E8;font-size:13px;">${date}</td></tr>
+          <tr><td style="padding:6px 0;color:rgba(245,240,232,0.5);font-size:13px;">Time</td><td style="padding:6px 0;color:#F5F0E8;font-size:13px;">${time}</td></tr>
+          <tr><td style="padding:6px 0;color:rgba(245,240,232,0.5);font-size:13px;">Location</td><td style="padding:6px 0;color:#F5F0E8;font-size:13px;">${location}</td></tr>
+          ${rush ? `<tr><td style="padding:6px 0;color:rgba(245,240,232,0.5);font-size:13px;">Rush</td><td style="padding:6px 0;color:#fbbf24;font-size:13px;">RUSH JOB</td></tr>` : ''}
+          <tr><td style="padding:6px 0;color:rgba(245,240,232,0.5);font-size:13px;">Estimate</td><td style="padding:6px 0;color:#4ade80;font-size:13px;font-weight:700;">$${(estimatedPrice||0).toFixed(2)}</td></tr>
+        </table>
+      </div>
+      <p style="color:rgba(245,240,232,0.7);font-size:13px;"><strong style="color:#C9A84C;">⚠ Payment has been collected upfront.</strong> Log in to your admin portal at ueauto.store to approve and assign this job.</p>
+    `);
+  },
+
+  accountWelcome({ name }) {
+    return this.wrap(`
+      <h2 style="color:#C9A84C;font-size:20px;margin:0 0 16px;">Welcome to Upper Echelon Automotive 👑</h2>
+      <p style="color:rgba(245,240,232,0.8);margin:0 0 16px;">Hi ${name}, your account has been created and you've earned <strong style="color:#C9A84C;">100 welcome points!</strong></p>
+      <p style="color:rgba(245,240,232,0.8);margin:0 0 20px;">Log in at <a href="https://ueauto.store" style="color:#C9A84C;">ueauto.store</a> to book service, track your appointments, and redeem your rewards.</p>
+    `);
+  },
+
+  appointmentApproved({ name, vehicle, service, date, time, location, adminNote }) {
+    return this.wrap(`
+      <h2 style="color:#4ade80;font-size:20px;margin:0 0 16px;">Your Appointment is Confirmed ✓</h2>
+      <p style="color:rgba(245,240,232,0.8);margin:0 0 20px;">Hi ${name}, great news — your appointment has been confirmed!</p>
+      <div style="background:rgba(74,222,128,0.08);border:1px solid rgba(74,222,128,0.25);border-radius:8px;padding:20px;margin-bottom:20px;">
+        <table style="width:100%;border-collapse:collapse;">
+          <tr><td style="padding:6px 0;color:rgba(245,240,232,0.5);font-size:13px;width:40%;">Vehicle</td><td style="padding:6px 0;color:#F5F0E8;font-size:13px;">${vehicle}</td></tr>
+          <tr><td style="padding:6px 0;color:rgba(245,240,232,0.5);font-size:13px;">Service</td><td style="padding:6px 0;color:#F5F0E8;font-size:13px;">${service}</td></tr>
+          <tr><td style="padding:6px 0;color:rgba(245,240,232,0.5);font-size:13px;">Date</td><td style="padding:6px 0;color:#F5F0E8;font-size:13px;">${date}</td></tr>
+          <tr><td style="padding:6px 0;color:rgba(245,240,232,0.5);font-size:13px;">Time</td><td style="padding:6px 0;color:#F5F0E8;font-size:13px;">${time}</td></tr>
+          <tr><td style="padding:6px 0;color:rgba(245,240,232,0.5);font-size:13px;">Location</td><td style="padding:6px 0;color:#F5F0E8;font-size:13px;">${location}</td></tr>
+        </table>
+      </div>
+      ${adminNote ? `<div style="background:rgba(201,168,76,0.08);border-left:3px solid #C9A84C;padding:12px 16px;border-radius:0 8px 8px 0;margin-bottom:20px;"><p style="color:#C9A84C;font-size:13px;margin:0;"><strong>Note from Robert:</strong> ${adminNote}</p></div>` : ''}
+      <p style="color:rgba(245,240,232,0.6);font-size:13px;">Questions? Call or text (251) 289-0740.</p>
+    `);
+  },
+
+  appointmentComplete({ name, vehicle, service, pointsEarned, reviewLink }) {
+    return this.wrap(`
+      <h2 style="color:#C9A84C;font-size:20px;margin:0 0 16px;">Service Complete — Thank You! 🎉</h2>
+      <p style="color:rgba(245,240,232,0.8);margin:0 0 16px;">Hi ${name}, your service has been completed. Thank you for choosing Upper Echelon Automotive!</p>
+      <div style="background:rgba(201,168,76,0.08);border:1px solid rgba(201,168,76,0.25);border-radius:8px;padding:20px;margin-bottom:20px;">
+        <table style="width:100%;border-collapse:collapse;">
+          <tr><td style="padding:6px 0;color:rgba(245,240,232,0.5);font-size:13px;width:40%;">Vehicle</td><td style="padding:6px 0;color:#F5F0E8;font-size:13px;">${vehicle}</td></tr>
+          <tr><td style="padding:6px 0;color:rgba(245,240,232,0.5);font-size:13px;">Service</td><td style="padding:6px 0;color:#F5F0E8;font-size:13px;">${service}</td></tr>
+          <tr><td style="padding:6px 0;color:rgba(245,240,232,0.5);font-size:13px;">Points Earned</td><td style="padding:6px 0;color:#4ade80;font-size:13px;font-weight:700;">+${pointsEarned} pts</td></tr>
+        </table>
+      </div>
+      <div style="text-align:center;margin-top:24px;">
+        <a href="${reviewLink}" style="display:inline-block;background:#C9A84C;color:#0A0A0F;padding:12px 28px;border-radius:6px;font-weight:700;text-decoration:none;font-size:14px;">⭐ Leave a Review</a>
+      </div>
+    `);
+  },
+
+  techWelcome({ name, pin }) {
+    return this.wrap(`
+      <h2 style="color:#C9A84C;font-size:20px;margin:0 0 16px;">Welcome to the UEA Technician Network 🔧</h2>
+      <p style="color:rgba(245,240,232,0.8);margin:0 0 16px;">Hi ${name}, you've been added to the Upper Echelon Automotive technician network!</p>
+      <div style="background:rgba(201,168,76,0.08);border:1px solid rgba(201,168,76,0.25);border-radius:8px;padding:20px;margin-bottom:20px;">
+        <p style="color:rgba(245,240,232,0.5);font-size:13px;margin:0 0 4px;">Your Login</p>
+        <p style="color:#F5F0E8;font-size:15px;margin:0;"><strong>Name:</strong> ${name}</p>
+        <p style="color:#F5F0E8;font-size:15px;margin:4px 0 0;"><strong>PIN:</strong> <span style="color:#C9A84C;font-family:monospace;font-size:18px;">${pin}</span></p>
+      </div>
+      <p style="color:rgba(245,240,232,0.7);font-size:13px;">Log in at <a href="https://ueauto.store" style="color:#C9A84C;">ueauto.store</a> and complete your verification documents (ID, selfie, insurance, equipment photos) before you can start accepting jobs.</p>
+    `);
+  },
+
+  techVerificationUpdate({ name, status }) {
+    const approved = status === 'verified';
+    return this.wrap(`
+      <h2 style="color:${approved ? '#4ade80' : '#f87171'};font-size:20px;margin:0 0 16px;">
+        ${approved ? '✓ Verification Approved!' : '✗ Verification Update'}
+      </h2>
+      <p style="color:rgba(245,240,232,0.8);margin:0 0 16px;">Hi ${name},</p>
+      ${approved
+        ? `<p style="color:rgba(245,240,232,0.8);margin:0 0 16px;">Your verification has been <strong style="color:#4ade80;">approved</strong>! You can now log in and start accepting jobs.</p>`
+        : `<p style="color:rgba(245,240,232,0.8);margin:0 0 16px;">Your verification documents need attention. Please log in and resubmit your documents, then contact Robert at (251) 289-0740 for next steps.</p>`
+      }
+      <div style="text-align:center;margin-top:24px;">
+        <a href="https://ueauto.store" style="display:inline-block;background:#C9A84C;color:#0A0A0F;padding:12px 28px;border-radius:6px;font-weight:700;text-decoration:none;font-size:14px;">Log In to Portal</a>
+      </div>
+    `);
+  },
+
+  newJobAlert({ techName, service, vehicle, date, time, location, emergency }) {
+    return this.wrap(`
+      <h2 style="color:#C9A84C;font-size:20px;margin:0 0 16px;">🔧 New Job Available!</h2>
+      ${emergency ? `<div style="background:rgba(239,68,68,0.15);border:1px solid rgba(239,68,68,0.4);border-radius:6px;padding:10px 14px;margin-bottom:16px;"><p style="color:#f87171;font-weight:700;margin:0;">⚠ EMERGENCY JOB</p></div>` : ''}
+      <p style="color:rgba(245,240,232,0.8);margin:0 0 20px;">Hi ${techName}, a new job is available. Claim it before another technician does!</p>
+      <div style="background:rgba(201,168,76,0.08);border:1px solid rgba(201,168,76,0.25);border-radius:8px;padding:20px;margin-bottom:20px;">
+        <table style="width:100%;border-collapse:collapse;">
+          <tr><td style="padding:6px 0;color:rgba(245,240,232,0.5);font-size:13px;width:40%;">Service</td><td style="padding:6px 0;color:#F5F0E8;font-size:13px;">${service}</td></tr>
+          <tr><td style="padding:6px 0;color:rgba(245,240,232,0.5);font-size:13px;">Vehicle</td><td style="padding:6px 0;color:#F5F0E8;font-size:13px;">${vehicle}</td></tr>
+          <tr><td style="padding:6px 0;color:rgba(245,240,232,0.5);font-size:13px;">Date</td><td style="padding:6px 0;color:#F5F0E8;font-size:13px;">${date}</td></tr>
+          <tr><td style="padding:6px 0;color:rgba(245,240,232,0.5);font-size:13px;">Time</td><td style="padding:6px 0;color:#F5F0E8;font-size:13px;">${time}</td></tr>
+          <tr><td style="padding:6px 0;color:rgba(245,240,232,0.5);font-size:13px;">Location</td><td style="padding:6px 0;color:#F5F0E8;font-size:13px;">${location}</td></tr>
+        </table>
+      </div>
+      <div style="text-align:center;">
+        <a href="https://ueauto.store" style="display:inline-block;background:#C9A84C;color:#0A0A0F;padding:12px 28px;border-radius:6px;font-weight:700;text-decoration:none;font-size:14px;">Claim This Job →</a>
+      </div>
+    `);
+  },
+
+  techJobAssigned({ techName, customerName, vehicle, service, date, time, location }) {
+    return this.wrap(`
+      <h2 style="color:#4ade80;font-size:20px;margin:0 0 16px;">✓ Job Assigned to You</h2>
+      <p style="color:rgba(245,240,232,0.8);margin:0 0 20px;">Hi ${techName}, you've been assigned the following job:</p>
+      <div style="background:rgba(74,222,128,0.08);border:1px solid rgba(74,222,128,0.25);border-radius:8px;padding:20px;margin-bottom:20px;">
+        <table style="width:100%;border-collapse:collapse;">
+          <tr><td style="padding:6px 0;color:rgba(245,240,232,0.5);font-size:13px;width:40%;">Customer</td><td style="padding:6px 0;color:#F5F0E8;font-size:13px;">${customerName}</td></tr>
+          <tr><td style="padding:6px 0;color:rgba(245,240,232,0.5);font-size:13px;">Vehicle</td><td style="padding:6px 0;color:#F5F0E8;font-size:13px;">${vehicle}</td></tr>
+          <tr><td style="padding:6px 0;color:rgba(245,240,232,0.5);font-size:13px;">Service</td><td style="padding:6px 0;color:#F5F0E8;font-size:13px;">${service}</td></tr>
+          <tr><td style="padding:6px 0;color:rgba(245,240,232,0.5);font-size:13px;">Date</td><td style="padding:6px 0;color:#F5F0E8;font-size:13px;">${date}</td></tr>
+          <tr><td style="padding:6px 0;color:rgba(245,240,232,0.5);font-size:13px;">Time</td><td style="padding:6px 0;color:#F5F0E8;font-size:13px;">${time}</td></tr>
+          <tr><td style="padding:6px 0;color:rgba(245,240,232,0.5);font-size:13px;">Location</td><td style="padding:6px 0;color:#F5F0E8;font-size:13px;">${location}</td></tr>
+        </table>
+      </div>
+    `);
+  },
+
+  techPaid({ techName, amount, jobService }) {
+    return this.wrap(`
+      <h2 style="color:#4ade80;font-size:20px;margin:0 0 16px;">💰 Payment Sent!</h2>
+      <p style="color:rgba(245,240,232,0.8);margin:0 0 16px;">Hi ${techName}, your payment has been sent for the following job:</p>
+      <div style="background:rgba(74,222,128,0.08);border:1px solid rgba(74,222,128,0.25);border-radius:8px;padding:20px;margin-bottom:20px;">
+        <table style="width:100%;border-collapse:collapse;">
+          <tr><td style="padding:6px 0;color:rgba(245,240,232,0.5);font-size:13px;width:40%;">Service</td><td style="padding:6px 0;color:#F5F0E8;font-size:13px;">${jobService}</td></tr>
+          <tr><td style="padding:6px 0;color:rgba(245,240,232,0.5);font-size:13px;">Amount</td><td style="padding:6px 0;color:#4ade80;font-size:18px;font-weight:700;">$${Number(amount).toFixed(2)}</td></tr>
+        </table>
+      </div>
+      <p style="color:rgba(245,240,232,0.6);font-size:13px;">Funds will appear in your Stripe account within 2–7 business days depending on your bank.</p>
+    `);
+  },
+
+  fleetWelcome({ contactName, companyName }) {
+    return this.wrap(`
+      <h2 style="color:#C9A84C;font-size:20px;margin:0 0 16px;">Fleet Account Created</h2>
+      <p style="color:rgba(245,240,232,0.8);margin:0 0 16px;">Hi ${contactName}, your fleet account for <strong>${companyName}</strong> has been set up!</p>
+      <p style="color:rgba(245,240,232,0.7);font-size:13px;">Log in at <a href="https://ueauto.store" style="color:#C9A84C;">ueauto.store</a> to manage your vehicles and request service.</p>
+    `);
+  },
+
+  towWelcome({ contactName, companyName, pin }) {
+    return this.wrap(`
+      <h2 style="color:#C9A84C;font-size:20px;margin:0 0 16px;">Welcome to the UEA Tow Network</h2>
+      <p style="color:rgba(245,240,232,0.8);margin:0 0 16px;">Hi ${contactName}, <strong>${companyName}</strong> has been added as a tow partner!</p>
+      <div style="background:rgba(201,168,76,0.08);border:1px solid rgba(201,168,76,0.25);border-radius:8px;padding:20px;margin-bottom:20px;">
+        <p style="color:rgba(245,240,232,0.5);font-size:13px;margin:0 0 4px;">Your Login PIN</p>
+        <p style="color:#C9A84C;font-family:monospace;font-size:24px;font-weight:700;margin:0;">${pin}</p>
+      </div>
+      <p style="color:rgba(245,240,232,0.7);font-size:13px;">Log in at <a href="https://ueauto.store" style="color:#C9A84C;">ueauto.store</a> to start accepting tow requests.</p>
+    `);
+  },
+
+  newTowAlert({ contactName, customerName, pickupLocation, vehicle }) {
+    return this.wrap(`
+      <h2 style="color:#C9A84C;font-size:20px;margin:0 0 16px;">🚨 New Tow Request</h2>
+      <p style="color:rgba(245,240,232,0.8);margin:0 0 20px;">Hi ${contactName}, a new tow request is available to claim!</p>
+      <div style="background:rgba(201,168,76,0.08);border:1px solid rgba(201,168,76,0.25);border-radius:8px;padding:20px;margin-bottom:20px;">
+        <table style="width:100%;border-collapse:collapse;">
+          <tr><td style="padding:6px 0;color:rgba(245,240,232,0.5);font-size:13px;width:40%;">Customer</td><td style="padding:6px 0;color:#F5F0E8;font-size:13px;">${customerName}</td></tr>
+          <tr><td style="padding:6px 0;color:rgba(245,240,232,0.5);font-size:13px;">Vehicle</td><td style="padding:6px 0;color:#F5F0E8;font-size:13px;">${vehicle || 'N/A'}</td></tr>
+          <tr><td style="padding:6px 0;color:rgba(245,240,232,0.5);font-size:13px;">Pickup</td><td style="padding:6px 0;color:#F5F0E8;font-size:13px;">${pickupLocation}</td></tr>
+        </table>
+      </div>
+      <div style="text-align:center;">
+        <a href="https://ueauto.store" style="display:inline-block;background:#C9A84C;color:#0A0A0F;padding:12px 28px;border-radius:6px;font-weight:700;text-decoration:none;font-size:14px;">Claim Tow Request →</a>
+      </div>
+    `);
+  },
+
+  adminVerificationAlert({ techName, techId }) {
+    return this.wrap(`
+      <h2 style="color:#C9A84C;font-size:20px;margin:0 0 16px;">📋 New Technician Verification Submitted</h2>
+      <p style="color:rgba(245,240,232,0.8);margin:0 0 16px;"><strong>${techName}</strong> has submitted their verification documents for review.</p>
+      <div style="text-align:center;margin-top:24px;">
+        <a href="https://ueauto.store" style="display:inline-block;background:#C9A84C;color:#0A0A0F;padding:12px 28px;border-radius:6px;font-weight:700;text-decoration:none;font-size:14px;">Review in Admin Portal →</a>
+      </div>
+    `);
+  },
+};
+
+// ── Middleware ────────────────────────────────────────────────────────────────
+app.use(cors({ origin: '*' }));
+app.use(express.json());
+
+// ── Multer (in-memory for Supabase upload) ────────────────────────────────────
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 20 * 1024 * 1024 }, // 20 MB max
+  fileFilter(req, file, cb) {
+    const allowed = /jpg|jpeg|png|gif|webp|mp4|mov|pdf/;
+    const ext = path.extname(file.originalname).toLowerCase().slice(1);
+    cb(null, allowed.test(ext));
+  },
+});
+
+// ── Health ────────────────────────────────────────────────────────────────────
+app.get('/health', (req, res) => res.json({ ok: true }));
+
+// ════════════════════════════════════════════════════════════════════════════════
+// EMAIL ROUTES
+// ════════════════════════════════════════════════════════════════════════════════
+
+// Send booking confirmation (customer + admin)
+app.post('/send-email/booking', async (req, res) => {
+  try {
+    const a = req.body;
+    const adminEmail = process.env.ADMIN_EMAIL || 'ueaceo@ueauto.store';
+
+    if (a.email) {
+      await sendEmail({
+        to: a.email,
+        subject: 'Booking Request Received — Upper Echelon Automotive',
+        html: EMAIL.bookingCustomer(a),
+      });
+    }
+    await sendEmail({
+      to: adminEmail,
+      subject: `🔔 New Booking — ${a.name} | ${a.service}`,
+      html: EMAIL.bookingAdmin(a),
+    });
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Send appointment approved email
+app.post('/send-email/approved', async (req, res) => {
+  try {
+    const a = req.body;
+    if (a.email) {
+      await sendEmail({
+        to: a.email,
+        subject: 'Your Appointment is Confirmed ✓ — Upper Echelon Automotive',
+        html: EMAIL.appointmentApproved(a),
+      });
+    }
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Send job completed email
+app.post('/send-email/completed', async (req, res) => {
+  try {
+    const a = req.body;
+    if (a.email) {
+      await sendEmail({
+        to: a.email,
+        subject: 'Service Complete — Thank You! — Upper Echelon Automotive',
+        html: EMAIL.appointmentComplete(a),
+      });
+    }
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// New job alert to all eligible technicians
+app.post('/send-email/new-job-alert', async (req, res) => {
+  try {
+    const { appt, technicians } = req.body;
+    const eligible = (technicians || []).filter(t => t.email && t.active !== false && t.jobEligible !== false);
+    for (const tech of eligible) {
+      await sendEmail({
+        to: tech.email,
+        subject: `🔧 New Job Available — ${appt.service}`,
+        html: EMAIL.newJobAlert({ techName: tech.name, ...appt }),
+      });
+    }
+    res.json({ ok: true, sent: eligible.length });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Job assigned to specific technician
+app.post('/send-email/job-assigned', async (req, res) => {
+  try {
+    const { tech, appt } = req.body;
+    if (tech?.email) {
+      await sendEmail({
+        to: tech.email,
+        subject: `✓ Job Assigned — ${appt.service} on ${appt.date}`,
+        html: EMAIL.techJobAssigned({ techName: tech.name, ...appt }),
+      });
+    }
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Technician paid notification
+app.post('/send-email/tech-paid', async (req, res) => {
+  try {
+    const { tech, amount, jobService } = req.body;
+    if (tech?.email) {
+      await sendEmail({
+        to: tech.email,
+        subject: `💰 Payment Sent — $${Number(amount).toFixed(2)}`,
+        html: EMAIL.techPaid({ techName: tech.name, amount, jobService }),
+      });
+    }
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Technician welcome
+app.post('/send-email/tech-welcome', async (req, res) => {
+  try {
+    const { name, email, pin } = req.body;
+    if (email) {
+      await sendEmail({
+        to: email,
+        subject: 'Welcome to the UEA Technician Network',
+        html: EMAIL.techWelcome({ name, pin }),
+      });
+    }
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Technician verification status update
+app.post('/send-email/tech-verification', async (req, res) => {
+  try {
+    const { name, email, status } = req.body;
+    const adminEmail = process.env.ADMIN_EMAIL || 'ueaceo@ueauto.store';
+    if (status === 'pending') {
+      // Docs submitted — notify admin
+      await sendEmail({
+        to: adminEmail,
+        subject: `📋 Verification Submitted — ${name}`,
+        html: EMAIL.adminVerificationAlert({ techName: name }),
+      });
+    } else {
+      // Approved or rejected — notify tech
+      if (email) {
+        await sendEmail({
+          to: email,
+          subject: status === 'verified' ? '✓ Verification Approved — You Can Now Accept Jobs!' : 'Verification Update — Upper Echelon Automotive',
+          html: EMAIL.techVerificationUpdate({ name, status }),
+        });
+      }
+    }
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Fleet welcome
+app.post('/send-email/fleet-welcome', async (req, res) => {
+  try {
+    const { contactName, companyName, email } = req.body;
+    if (email) {
+      await sendEmail({
+        to: email,
+        subject: 'Fleet Account Created — Upper Echelon Automotive',
+        html: EMAIL.fleetWelcome({ contactName, companyName }),
+      });
+    }
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Tow welcome
+app.post('/send-email/tow-welcome', async (req, res) => {
+  try {
+    const { contactName, companyName, email, pin } = req.body;
+    if (email) {
+      await sendEmail({
+        to: email,
+        subject: 'Welcome to the UEA Tow Network',
+        html: EMAIL.towWelcome({ contactName, companyName, pin }),
+      });
+    }
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Tow alert to all tow companies
+app.post('/send-email/new-tow-alert', async (req, res) => {
+  try {
+    const { req: towReq, towCompanies } = req.body;
+    const eligible = (towCompanies || []).filter(c => c.email && c.active !== false);
+    for (const co of eligible) {
+      await sendEmail({
+        to: co.email,
+        subject: '🚨 New Tow Request — Upper Echelon Automotive',
+        html: EMAIL.newTowAlert({ contactName: co.contactName, ...towReq }),
+      });
+    }
+    res.json({ ok: true, sent: eligible.length });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Account welcome
+app.post('/send-email/account-welcome', async (req, res) => {
+  try {
+    const { name, email } = req.body;
+    if (email) {
+      await sendEmail({
+        to: email,
+        subject: 'Welcome to Upper Echelon Automotive 👑',
+        html: EMAIL.accountWelcome({ name }),
+      });
+    }
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ════════════════════════════════════════════════════════════════════════════════
+// FILE UPLOAD ROUTES (Supabase Storage)
+// ════════════════════════════════════════════════════════════════════════════════
+
+app.post('/upload-tech-doc', upload.single('file'), async (req, res) => {
+  try {
+    const { techId, docType } = req.body;
+    if (!req.file || !techId || !docType) {
+      return res.status(400).json({ error: 'Missing file, techId, or docType.' });
+    }
+    const ext = path.extname(req.file.originalname).toLowerCase();
+    const filename = `${techId}/${docType}_${Date.now()}${ext}`;
+    const bucket = 'tech-verification';
+
+    const { error } = await supabase.storage
+      .from(bucket)
+      .upload(filename, req.file.buffer, {
+        contentType: req.file.mimetype,
+        upsert: true,
+      });
+
+    if (error) throw error;
+
+    const { data: urlData } = supabase.storage.from(bucket).getPublicUrl(filename);
+    res.json({ ok: true, url: urlData.publicUrl, filename });
+  } catch (e) {
+    console.error('[Upload]', e);
+    res.status(500).json({ error: e.message });
   }
 });
 
-// ═══════════════════════════════════════════════════════════════════════════
-// 1. CUSTOMER PAYMENT — charge a card for a completed job
-// ═══════════════════════════════════════════════════════════════════════════
+// ════════════════════════════════════════════════════════════════════════════════
+// STRIPE — PAYMENT ROUTES
+// ════════════════════════════════════════════════════════════════════════════════
+
+// Create payment intent (upfront booking payment)
 app.post('/create-payment-intent', async (req, res) => {
   try {
     const { appointmentId, amount, customerEmail, customerName } = req.body;
+    if (!amount || amount <= 0) return res.status(400).json({ error: 'Invalid amount.' });
 
-    if (!appointmentId || !amount || amount <= 0) {
-      return res.status(400).json({ error: 'appointmentId and a positive amount are required.' });
-    }
-
-    // Verify the appointment actually exists and matches the claimed amount,
-    // so a tampered client request can't charge an arbitrary amount.
-    const { data: appt, error: apptErr } = await supabase
-      .from('uea_appointments')
-      .select('id, estimated_price, status, name, email')
-      .eq('id', appointmentId)
-      .single();
-
-    if (apptErr || !appt) {
-      return res.status(404).json({ error: 'Appointment not found.' });
-    }
-
-    const paymentIntent = await stripe.paymentIntents.create({
-      amount: Math.round(amount * 100), // Stripe uses cents
+    const intent = await stripe.paymentIntents.create({
+      amount: Math.round(amount * 100),
       currency: 'usd',
-      receipt_email: customerEmail || appt.email,
-      metadata: {
-        appointmentId,
-        customerName: customerName || appt.name,
-        business: 'Upper Echelon Automotive',
-      },
-      automatic_payment_methods: { enabled: true },
+      metadata: { appointmentId, customerEmail, customerName },
+      receipt_email: customerEmail,
     });
-
-    res.json({ clientSecret: paymentIntent.client_secret, paymentIntentId: paymentIntent.id });
-  } catch (err) {
-    console.error('create-payment-intent error:', err.message);
-    res.status(500).json({ error: 'Could not create payment. Please try again.' });
-  }
+    res.json({ clientSecret: intent.client_secret });
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// ═══════════════════════════════════════════════════════════════════════════
-// 2. TECHNICIAN ONBOARDING — Stripe Connect Express account creation
-// ═══════════════════════════════════════════════════════════════════════════
+// Create subscription (membership)
+app.post('/create-subscription', async (req, res) => {
+  try {
+    const { userId, email, name, paymentMethodId } = req.body;
+    let customer;
+    const existing = await stripe.customers.list({ email, limit: 1 });
+    if (existing.data.length > 0) {
+      customer = existing.data[0];
+    } else {
+      customer = await stripe.customers.create({ email, name, metadata: { userId } });
+    }
+    await stripe.paymentMethods.attach(paymentMethodId, { customer: customer.id });
+    await stripe.customers.update(customer.id, {
+      invoice_settings: { default_payment_method: paymentMethodId },
+    });
+    const subscription = await stripe.subscriptions.create({
+      customer: customer.id,
+      items: [{ price: process.env.STRIPE_MEMBERSHIP_PRICE_ID }],
+      payment_behavior: 'default_incomplete',
+      expand: ['latest_invoice.payment_intent'],
+    });
+    res.json({
+      subscriptionId: subscription.id,
+      clientSecret: subscription.latest_invoice?.payment_intent?.client_secret,
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Cancel subscription
+app.post('/cancel-subscription', async (req, res) => {
+  try {
+    const { userId } = req.body;
+    const customers = await stripe.customers.search({ query: `metadata['userId']:'${userId}'` });
+    if (!customers.data.length) return res.status(404).json({ error: 'Customer not found.' });
+    const subs = await stripe.subscriptions.list({ customer: customers.data[0].id, status: 'active' });
+    for (const sub of subs.data) {
+      await stripe.subscriptions.cancel(sub.id);
+    }
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Create Stripe Connect account for technician
 app.post('/create-connect-account', async (req, res) => {
   try {
     const { technicianId, email, name } = req.body;
-    if (!technicianId || !email) {
-      return res.status(400).json({ error: 'technicianId and email are required.' });
-    }
-
-    // Check if this technician already has a Connect account on file
-    const { data: tech } = await supabase
-      .from('uea_technicians')
-      .select('stripe_connect_id')
-      .eq('id', technicianId)
-      .single();
-
-    let accountId = tech?.stripe_connect_id;
-
-    if (!accountId) {
-      const account = await stripe.accounts.create({
-        type: 'express',
-        email,
-        business_type: 'individual',
-        capabilities: {
-          transfers: { requested: true },
-        },
-        metadata: { technicianId, name: name || '' },
-      });
-      accountId = account.id;
-
-      await supabase
-        .from('uea_technicians')
-        .update({ stripe_connect_id: accountId })
-        .eq('id', technicianId);
-    }
-
-    res.json({ accountId });
-  } catch (err) {
-    console.error('create-connect-account error:', err.message);
-    res.status(500).json({ error: 'Could not create payout account.' });
-  }
+    const account = await stripe.accounts.create({
+      type: 'express',
+      email,
+      metadata: { technicianId },
+      capabilities: { transfers: { requested: true } },
+    });
+    // Save accountId to Supabase
+    await supabase.from('uea_technicians').update({ stripe_connect_id: account.id }).eq('id', technicianId);
+    res.json({ accountId: account.id });
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// ═══════════════════════════════════════════════════════════════════════════
-// 3. ONBOARDING LINK — Stripe-hosted form for bank/ID info
-// ═══════════════════════════════════════════════════════════════════════════
+// Generate Connect onboarding link
 app.post('/connect-onboarding-link', async (req, res) => {
   try {
     const { accountId, returnUrl, refreshUrl } = req.body;
-    if (!accountId) return res.status(400).json({ error: 'accountId is required.' });
-
-    const accountLink = await stripe.accountLinks.create({
+    const link = await stripe.accountLinks.create({
       account: accountId,
-      refresh_url: refreshUrl || `${ALLOWED_ORIGIN}/pages/technician-portal`,
-      return_url: returnUrl || `${ALLOWED_ORIGIN}/pages/technician-portal`,
+      refresh_url: refreshUrl,
+      return_url: returnUrl,
       type: 'account_onboarding',
     });
-
-    res.json({ url: accountLink.url });
-  } catch (err) {
-    console.error('connect-onboarding-link error:', err.message);
-    res.status(500).json({ error: 'Could not generate onboarding link.' });
-  }
+    res.json({ url: link.url });
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// ═══════════════════════════════════════════════════════════════════════════
-// 4. CHECK PAYOUT READINESS — has the technician finished Stripe onboarding?
-// ═══════════════════════════════════════════════════════════════════════════
+// Check Connect account status
 app.get('/connect-status/:technicianId', async (req, res) => {
   try {
     const { technicianId } = req.params;
-    const { data: tech } = await supabase
-      .from('uea_technicians')
-      .select('stripe_connect_id')
-      .eq('id', technicianId)
-      .single();
-
-    if (!tech?.stripe_connect_id) {
-      return res.json({ connected: false, payoutsEnabled: false });
-    }
-
-    const account = await stripe.accounts.retrieve(tech.stripe_connect_id);
-    res.json({
-      connected: true,
-      payoutsEnabled: account.payouts_enabled,
-      detailsSubmitted: account.details_submitted,
-    });
-  } catch (err) {
-    console.error('connect-status error:', err.message);
-    res.status(500).json({ error: 'Could not check payout status.' });
-  }
+    const { data } = await supabase.from('uea_technicians').select('stripe_connect_id').eq('id', technicianId).single();
+    if (!data?.stripe_connect_id) return res.json({ connected: false, payoutsEnabled: false });
+    const account = await stripe.accounts.retrieve(data.stripe_connect_id);
+    res.json({ connected: true, payoutsEnabled: account.payouts_enabled, accountId: account.id });
+  } catch (e) { res.json({ connected: false, payoutsEnabled: false }); }
 });
 
-// ═══════════════════════════════════════════════════════════════════════════
-// 5. PAY A TECHNICIAN — admin-triggered transfer to their Connect account
-// ═══════════════════════════════════════════════════════════════════════════
+// Payout technician via Stripe Connect transfer
 app.post('/payout-technician', async (req, res) => {
   try {
     const { technicianId, amount, adminPin } = req.body;
+    if (adminPin !== process.env.ADMIN_PIN) return res.status(403).json({ error: 'Unauthorized.' });
+    if (!amount || amount <= 0) return res.status(400).json({ error: 'Invalid amount.' });
 
-    // Simple shared-secret check so this endpoint can't be hit by anyone
-    // who finds the URL — must match the admin PIN used in the theme.
-    if (adminPin !== process.env.ADMIN_PIN) {
-      return res.status(403).json({ error: 'Unauthorized.' });
-    }
-    if (!technicianId || !amount || amount <= 0) {
-      return res.status(400).json({ error: 'technicianId and a positive amount are required.' });
-    }
-
-    const { data: tech, error: techErr } = await supabase
-      .from('uea_technicians')
-      .select('stripe_connect_id, name, total_paid_out')
-      .eq('id', technicianId)
-      .single();
-
-    if (techErr || !tech) return res.status(404).json({ error: 'Technician not found.' });
-    if (!tech.stripe_connect_id) {
-      return res.status(400).json({ error: 'This technician has not completed payout onboarding yet.' });
-    }
+    const { data: tech } = await supabase.from('uea_technicians').select('stripe_connect_id, name, email').eq('id', technicianId).single();
+    if (!tech?.stripe_connect_id) return res.status(400).json({ error: 'Technician has not completed Stripe payout setup.' });
 
     const transfer = await stripe.transfers.create({
       amount: Math.round(amount * 100),
       currency: 'usd',
       destination: tech.stripe_connect_id,
-      metadata: { technicianId, technicianName: tech.name },
+      metadata: { technicianId },
     });
 
-    // Record the payout and update running totals
+    // Log payout in Supabase
     await supabase.from('uea_payouts').insert({
-      id: `payout_${Date.now()}`,
+      id: transfer.id,
       technician_id: technicianId,
       amount,
-      method: 'stripe_transfer',
+      method: 'stripe_connect',
       status: 'paid',
-      note: `Stripe transfer ${transfer.id}`,
+      note: `Transfer ${transfer.id}`,
     });
 
-    await supabase
-      .from('uea_technicians')
-      .update({ total_paid_out: (tech.total_paid_out || 0) + amount })
-      .eq('id', technicianId);
-
-    res.json({ success: true, transferId: transfer.id });
-  } catch (err) {
-    console.error('payout-technician error:', err.message);
-    res.status(500).json({ error: err.message || 'Payout failed.' });
-  }
+    res.json({ ok: true, transferId: transfer.id });
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// ═══════════════════════════════════════════════════════════════════════════
-// 6. MEMBERSHIP SUBSCRIPTION — $19.99/mo recurring billing
-// ═══════════════════════════════════════════════════════════════════════════
-app.post('/create-subscription', async (req, res) => {
+// ════════════════════════════════════════════════════════════════════════════════
+// SMS (Textbelt relay)
+// ════════════════════════════════════════════════════════════════════════════════
+app.post('/send-sms', async (req, res) => {
   try {
-    const { userId, email, name, paymentMethodId } = req.body;
-    if (!userId || !email || !paymentMethodId) {
-      return res.status(400).json({ error: 'userId, email, and paymentMethodId are required.' });
-    }
-
-    // Find or create the Stripe customer
-    const { data: user } = await supabase
-      .from('uea_users')
-      .select('stripe_customer_id')
-      .eq('id', userId)
-      .single();
-
-    let customerId = user?.stripe_customer_id;
-    if (!customerId) {
-      const customer = await stripe.customers.create({
-        email, name, payment_method: paymentMethodId,
-        invoice_settings: { default_payment_method: paymentMethodId },
-        metadata: { userId },
-      });
-      customerId = customer.id;
-      await supabase.from('uea_users').update({ stripe_customer_id: customerId }).eq('id', userId);
-    } else {
-      await stripe.paymentMethods.attach(paymentMethodId, { customer: customerId });
-      await stripe.customers.update(customerId, {
-        invoice_settings: { default_payment_method: paymentMethodId },
-      });
-    }
-
-    // Create (or reuse) the membership Price — done once, cached by lookup_key
-    let price;
-    const existingPrices = await stripe.prices.list({ lookup_keys: ['uea_membership_monthly'], limit: 1 });
-    if (existingPrices.data.length) {
-      price = existingPrices.data[0];
-    } else {
-      const product = await stripe.products.create({ name: 'Upper Echelon Automotive Membership' });
-      price = await stripe.prices.create({
-        product: product.id,
-        unit_amount: MEMBERSHIP_PRICE_CENTS,
-        currency: 'usd',
-        recurring: { interval: 'month' },
-        lookup_key: 'uea_membership_monthly',
-      });
-    }
-
-    const subscription = await stripe.subscriptions.create({
-      customer: customerId,
-      items: [{ price: price.id }],
-      payment_behavior: 'default_incomplete',
-      expand: ['latest_invoice.payment_intent'],
-      metadata: { userId },
+    const { phone, message } = req.body;
+    const r = await fetch('https://textbelt.com/text', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phone, message, key: process.env.TEXTBELT_KEY || 'textbelt' }),
     });
+    const data = await r.json();
+    res.json(data);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
 
-    await supabase
-      .from('uea_users')
-      .update({
-        membership: true,
-        membership_since: new Date().toISOString(),
-        stripe_subscription_id: subscription.id,
-      })
-      .eq('id', userId);
-
-    res.json({
-      subscriptionId: subscription.id,
-      clientSecret: subscription.latest_invoice.payment_intent?.client_secret,
+// ════════════════════════════════════════════════════════════════════════════════
+// START
+// ════════════════════════════════════════════════════════════════════════════════
+// ════════════════════════════════════════════════════════════════════════════════
+// PARTSTECH — Parts Search & Ordering
+// ════════════════════════════════════════════════════════════════════════════════
+// Requires PARTSTECH_USERNAME and PARTSTECH_ACCESS_CODE env vars (from partstech.com account)
+app.post('/partstech/search', async (req, res) => {
+  try {
+    const { year, make, model, query } = req.body;
+    if (!process.env.PARTSTECH_USERNAME || !process.env.PARTSTECH_ACCESS_CODE) {
+      return res.status(400).json({ error: 'PartsTech not configured yet. Add PARTSTECH_USERNAME and PARTSTECH_ACCESS_CODE to environment variables.' });
+    }
+    // PartsTech's actual API endpoint and auth scheme should be confirmed against
+    // their developer docs at api-docs.partstech.com once you have credentials —
+    // this is a placeholder structure matching their documented request format.
+    const r = await fetch('https://api.partstech.com/v1/search', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Basic ${Buffer.from(`${process.env.PARTSTECH_USERNAME}:${process.env.PARTSTECH_ACCESS_CODE}`).toString('base64')}`,
+      },
+      body: JSON.stringify({ year, make, model, query }),
     });
-  } catch (err) {
-    console.error('create-subscription error:', err.message);
-    res.status(500).json({ error: err.message || 'Could not start membership.' });
-  }
+    const data = await r.json();
+    if (!r.ok) return res.status(r.status).json({ error: data.error || 'PartsTech search failed.' });
+    res.json(data);
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// ── Cancel membership ───────────────────────────────────────────────────────
-app.post('/cancel-subscription', async (req, res) => {
+// ════════════════════════════════════════════════════════════════════════════════
+// TECHNICIAN TIME CLOCK
+// ════════════════════════════════════════════════════════════════════════════════
+app.post('/time-clock/start', async (req, res) => {
   try {
-    const { userId } = req.body;
-    const { data: user } = await supabase
-      .from('uea_users')
-      .select('stripe_subscription_id')
-      .eq('id', userId)
-      .single();
-
-    if (user?.stripe_subscription_id) {
-      await stripe.subscriptions.cancel(user.stripe_subscription_id);
-    }
-
-    await supabase.from('uea_users').update({ membership: false }).eq('id', userId);
-    res.json({ success: true });
-  } catch (err) {
-    console.error('cancel-subscription error:', err.message);
-    res.status(500).json({ error: 'Could not cancel membership.' });
-  }
+    const { appointmentId, technicianId } = req.body;
+    const id = `tl_${Date.now()}_${Math.random().toString(36).slice(2,8)}`;
+    const { data, error } = await supabase.from('uea_time_logs').insert({
+      id, appointment_id: appointmentId, technician_id: technicianId,
+      clock_in_at: new Date().toISOString(),
+    }).select().single();
+    if (error) throw error;
+    res.json({ ok: true, logId: data.id });
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// ═══════════════════════════════════════════════════════════════════════════
-// 7. STRIPE WEBHOOK — keeps Supabase in sync with what actually happened
-// ═══════════════════════════════════════════════════════════════════════════
-async function handleWebhook(req, res) {
-  let event;
+app.post('/time-clock/stop', async (req, res) => {
   try {
-    const sig = req.headers['stripe-signature'];
-    event = stripe.webhooks.constructEvent(req.body, sig, process.env.STRIPE_WEBHOOK_SECRET);
-  } catch (err) {
-    console.error('Webhook signature verification failed:', err.message);
-    return res.status(400).send(`Webhook Error: ${err.message}`);
-  }
-
-  try {
-    switch (event.type) {
-      case 'payment_intent.succeeded': {
-        const pi = event.data.object;
-        const appointmentId = pi.metadata?.appointmentId;
-        if (appointmentId) {
-          await supabase
-            .from('uea_appointments')
-            .update({ payment_status: 'paid', payment_intent_id: pi.id, paid_at: new Date().toISOString() })
-            .eq('id', appointmentId);
-        }
-        break;
-      }
-
-      case 'payment_intent.payment_failed': {
-        const pi = event.data.object;
-        const appointmentId = pi.metadata?.appointmentId;
-        if (appointmentId) {
-          await supabase
-            .from('uea_appointments')
-            .update({ payment_status: 'failed' })
-            .eq('id', appointmentId);
-        }
-        break;
-      }
-
-      case 'invoice.payment_succeeded': {
-        // Recurring membership payment succeeded
-        const invoice = event.data.object;
-        const subId = invoice.subscription;
-        if (subId) {
-          await supabase
-            .from('uea_users')
-            .update({ membership: true })
-            .eq('stripe_subscription_id', subId);
-        }
-        break;
-      }
-
-      case 'invoice.payment_failed': {
-        const invoice = event.data.object;
-        const subId = invoice.subscription;
-        if (subId) {
-          console.warn(`Membership payment failed for subscription ${subId}`);
-          // Intentionally not auto-cancelling membership on first failure —
-          // Stripe will retry automatically per its dunning settings.
-        }
-        break;
-      }
-
-      case 'customer.subscription.deleted': {
-        const sub = event.data.object;
-        await supabase
-          .from('uea_users')
-          .update({ membership: false })
-          .eq('stripe_subscription_id', sub.id);
-        break;
-      }
-
-      case 'account.updated': {
-        // Technician's Connect onboarding status changed
-        const account = event.data.object;
-        const technicianId = account.metadata?.technicianId;
-        if (technicianId) {
-          await supabase
-            .from('uea_technicians')
-            .update({ payout_method: account.payouts_enabled ? 'bank' : null })
-            .eq('id', technicianId);
-        }
-        break;
-      }
-
-      default:
-        // Unhandled event types are fine to ignore
-        break;
-    }
-
-    res.json({ received: true });
-  } catch (err) {
-    console.error('Webhook handler error:', err.message);
-    res.status(500).json({ error: 'Webhook processing failed.' });
-  }
-}
-
-// ═══════════════════════════════════════════════════════════════════════════
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log(`Upper Echelon Automotive backend running on port ${PORT}`);
+    const { logId } = req.body;
+    const { data: existing } = await supabase.from('uea_time_logs').select('clock_in_at').eq('id', logId).single();
+    if (!existing) return res.status(404).json({ error: 'Time log not found.' });
+    const clockOut = new Date();
+    const clockIn = new Date(existing.clock_in_at);
+    const totalSeconds = Math.round((clockOut - clockIn) / 1000);
+    const { error } = await supabase.from('uea_time_logs').update({
+      clock_out_at: clockOut.toISOString(),
+      total_seconds: totalSeconds,
+    }).eq('id', logId);
+    if (error) throw error;
+    res.json({ ok: true, totalSeconds });
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
+
+app.get('/time-clock/active/:technicianId', async (req, res) => {
+  try {
+    const { technicianId } = req.params;
+    const { data, error } = await supabase.from('uea_time_logs')
+      .select('*').eq('technician_id', technicianId).is('clock_out_at', null)
+      .order('clock_in_at', { ascending: false }).limit(1);
+    if (error) throw error;
+    res.json({ active: data && data.length > 0 ? data[0] : null });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.get('/time-clock/job/:appointmentId', async (req, res) => {
+  try {
+    const { appointmentId } = req.params;
+    const { data, error } = await supabase.from('uea_time_logs')
+      .select('*').eq('appointment_id', appointmentId).order('clock_in_at', { ascending: true });
+    if (error) throw error;
+    const totalSeconds = (data || []).reduce((sum, log) => sum + (log.total_seconds || 0), 0);
+    res.json({ logs: data || [], totalSeconds });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.listen(PORT, () => console.log(`UEA Backend running on port ${PORT}`));
