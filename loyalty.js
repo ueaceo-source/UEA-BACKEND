@@ -22,6 +22,7 @@
 const express = require('express');
 const crypto = require('crypto');
 const path = require('path');
+const fs = require('fs');
 
 const router = express.Router();
 
@@ -42,7 +43,7 @@ const RUSH_VARIANTS = (process.env.UEA_RUSH_VARIANT_IDS || '54522213662995').spl
 (() => {
   const missing = [];
   if (!SB_URL) missing.push('SUPABASE_URL');
-  if (!SB_KEY) missing.push('SUPABASE_SERVICE_ROLE_KEY');
+  if (!SB_KEY) missing.push('SUPABASE_SERVICE_KEY');
   if (!LOYALTY_SECRET) missing.push('LOYALTY_SECRET');
   if (!WEBHOOK_SECRET) missing.push('SHOPIFY_WEBHOOK_SECRET');
   if (!ADMIN_PASSWORD) missing.push('LOYALTY_ADMIN_PASSWORD');
@@ -843,7 +844,10 @@ router.post('/admin/password', auth(ALL), h(async (req, res) => {
 // Admin portal page
 router.get('/admin', (req, res) => {
   res.setHeader('X-Robots-Tag', 'noindex');
-  res.sendFile(path.join(__dirname, 'loyalty-admin.html'));
+  const file = [__dirname, path.join(__dirname, '..'), path.join(__dirname, 'src')]
+    .map(d => path.join(d, 'loyalty-admin.html')).find(f => fs.existsSync(f));
+  if (!file) return res.status(500).send('loyalty-admin.html is missing. Upload it to the same folder as loyalty.js in GitHub.');
+  res.sendFile(file);
 });
 
 // ── Admin API ───────────────────────────────────────────────────────────────
