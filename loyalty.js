@@ -30,7 +30,8 @@ const SB_URL = (process.env.SUPABASE_URL || '').replace(/\/$/, '');
 const SB_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_KEY || '';
 const LOYALTY_SECRET = process.env.LOYALTY_SECRET || '';
 const WEBHOOK_SECRET = process.env.SHOPIFY_WEBHOOK_SECRET || '';
-const ADMIN_PASSWORD = process.env.LOYALTY_ADMIN_PASSWORD || '';
+// Owner password. A LOYALTY_ADMIN_PASSWORD value on Render overrides this one.
+const ADMIN_PASSWORD = process.env.LOYALTY_ADMIN_PASSWORD || 'Daytona01@';
 const OWNER_EMAIL = (process.env.LOYALTY_OWNER_EMAIL || 'ueaceo@ueauto.store').trim().toLowerCase();
 const PUBLIC_BASE = (process.env.PUBLIC_BACKEND_URL || 'https://uea-backend-3.onrender.com').replace(/\/$/, '');
 const ORIGINS = (process.env.LOYALTY_ALLOWED_ORIGINS ||
