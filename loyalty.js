@@ -585,7 +585,7 @@ router.use((req, res, next) => {
     res.setHeader('Vary', 'Origin');
   }
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, OPTIONS');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
   if (req.method === 'OPTIONS') return res.sendStatus(204);
   next();
 });
@@ -1096,8 +1096,13 @@ router.post('/admin/jobs', auth(DESK), h(async (req, res) => {
       rush: !!b.rush, stage: sched ? 'scheduled' : 'new'
     }
   });
-  const job = created[0];
+  let job = created[0];
   await logEvent(job.id, req.staff.name, 'status', `Job created${b.source_note ? ` (${t(b.source_note, 60)})` : ''}`);
+  const quoteLines = sanitizeLines(b.estimate_lines);
+  if (quoteLines.length) {
+    job = (await patchJob(job.id, { estimate: { lines: quoteLines, notes: t(b.estimate_notes, 1000) || '', updated_at: new Date().toISOString() } }))[0] || job;
+    await logEvent(job.id, req.staff.name, 'estimate', `Estimate started from quote: ${quoteLines.length} line${quoteLines.length === 1 ? '' : 's'}`);
+  }
   let award = null;
   if (b.paid) {
     try {
@@ -1172,13 +1177,8 @@ async function estimateGuard(req) {
   return cfg;
 }
 
-router.put('/admin/booking/:id/estimate', auth(ALL), h(async (req, res) => {
-  const j = await loadJob(req, req.params.id);
-  const cfg = await estimateGuard(req);
-  if (j.status !== 'open') throw httpErr(400, 'This job is closed. Undo the payment to change the estimate.');
-  const old = j.estimate || { lines: [] };
-  const oldById = new Map((old.lines || []).map(l => [l.id, l]));
-  const lines = (Array.isArray(req.body.lines) ? req.body.lines : []).slice(0, 80).map(l => {
+function sanitizeLines(input) {
+  return (Array.isArray(input) ? input : []).slice(0, 80).map(l => {
     const type = ['labor', 'part', 'fee', 'discount'].includes(l.type) ? l.type : 'labor';
     const status = type === 'discount' ? 'approved' : (['pending', 'approved', 'declined'].includes(l.status) ? l.status : 'pending');
     return {
@@ -1188,9 +1188,19 @@ router.put('/admin/booking/:id/estimate', auth(ALL), h(async (req, res) => {
       unit_cents: Math.min(5000000, Math.max(0, Math.round(Number(l.unit_cents) || 0))),
       cost_cents: l.cost_cents == null || l.cost_cents === '' ? null : Math.max(0, Math.round(Number(l.cost_cents) || 0)),
       part_no: l.part_no ? String(l.part_no).trim().slice(0, 60) : null,
+      guide_id: l.guide_id ? String(l.guide_id).slice(0, 80) : null,
       status
     };
   }).filter(l => l.desc);
+}
+
+router.put('/admin/booking/:id/estimate', auth(ALL), h(async (req, res) => {
+  const j = await loadJob(req, req.params.id);
+  const cfg = await estimateGuard(req);
+  if (j.status !== 'open') throw httpErr(400, 'This job is closed. Undo the payment to change the estimate.');
+  const old = j.estimate || { lines: [] };
+  const oldById = new Map((old.lines || []).map(l => [l.id, l]));
+  const lines = sanitizeLines(req.body.lines);
   const changes = [];
   lines.forEach(l => {
     const o = oldById.get(l.id);
@@ -1201,6 +1211,7 @@ router.put('/admin/booking/:id/estimate', auth(ALL), h(async (req, res) => {
   let stage = j.stage;
   if (changes.length && totals.pending === 0 && j.stage === 'waiting_approval' && lines.some(l => l.status === 'approved')) stage = 'in_progress';
   await patchJob(j.id, { estimate: est, stage });
+  histCache.at = 0; // guide history picks up this estimate right away
   await logEvent(j.id, req.staff.name, 'estimate', `Estimate saved: ${lines.length} line${lines.length === 1 ? '' : 's'}, ${money(totals.quoted.total)} quoted`);
   for (const c of changes) await logEvent(j.id, req.staff.name, 'estimate', c);
   if (stage !== j.stage) await logEvent(j.id, req.staff.name, 'status', `${STAGE_LABEL[j.stage]} → ${STAGE_LABEL[stage]}`);
@@ -1269,10 +1280,216 @@ router.post('/admin/booking/:id/followup', auth(DESK), h(async (req, res) => {
   res.json({ ok: true });
 }));
 
+// ── Labor & parts guide ─────────────────────────────────────────────────────
+const MAKES = ['Land Rover', 'Mercedes-Benz', 'Mercedes', 'Alfa Romeo', 'Aston Martin', 'Acura', 'Audi', 'BMW', 'Buick', 'Cadillac',
+  'Chevrolet', 'Chevy', 'Chrysler', 'Dodge', 'Fiat', 'Ford', 'GMC', 'Genesis', 'Honda', 'Hummer', 'Hyundai', 'Infiniti', 'Isuzu',
+  'Jaguar', 'Jeep', 'Kia', 'Lexus', 'Lincoln', 'Mazda', 'MINI', 'Mitsubishi', 'Nissan', 'Pontiac', 'Porsche', 'RAM', 'Saturn',
+  'Scion', 'Subaru', 'Suzuki', 'Tesla', 'Toyota', 'Volkswagen', 'VW', 'Volvo'];
+const MAKE_ALIAS = { chevy: 'Chevrolet', vw: 'Volkswagen', mercedes: 'Mercedes-Benz' };
+
+function parseVehicle(input) {
+  const text = String(input || '').trim();
+  const low = text.toLowerCase();
+  const y = (text.match(/\b(19[5-9]\d|20[0-4]\d)\b/) || [])[1];
+  let make = null, at = -1;
+  for (const m of MAKES) {
+    const i = low.search(new RegExp(`\\b${m.toLowerCase().replace(/[-]/g, '\\-')}\\b`));
+    if (i > -1) { make = MAKE_ALIAS[m.toLowerCase()] || m; at = i + m.length; break; }
+  }
+  // Model = first word after the make ("F-150", "Camry"), or two words for names like "Grand Cherokee" / "Santa Fe"
+  let model = null;
+  if (make) {
+    const w = text.slice(at).replace(/\b(19|20)\d\d\b/, '').trim().split(/\s+/).filter(Boolean);
+    if (w.length) model = ['grand', 'santa', 'town', 'range', 'model', 'land', 'monte', 'el'].includes(w[0].toLowerCase()) && w[1] ? `${w[0]} ${w[1]}` : w[0];
+  }
+  return { text, low, year: y ? Number(y) : null, make, model };
+}
+
+function overrideScore(o, v) {
+  if (!v.make || String(o.make).toLowerCase() !== v.make.toLowerCase()) return -1;
+  if (o.model && !v.low.includes(String(o.model).toLowerCase())) return -1;
+  if (o.year_from && (!v.year || v.year < o.year_from)) return -1;
+  if (o.year_to && (!v.year || v.year > o.year_to)) return -1;
+  if (o.engine && !v.low.includes(String(o.engine).toLowerCase())) return -1;
+  return 1 + (o.model ? 2 : 0) + (o.year_from || o.year_to ? 1 : 0) + (o.engine ? 1 : 0);
+}
+
+const describeOverride = o => [o.year_from && o.year_to ? (o.year_from === o.year_to ? `${o.year_from}` : `${o.year_from}–${o.year_to}`) : o.year_from ? `${o.year_from}+` : o.year_to ? `up to ${o.year_to}` : '',
+  o.make, o.model, o.engine].filter(Boolean).join(' ');
+
+let histCache = { at: 0, rows: [] };
+async function recentEstimates() {
+  if (Date.now() - histCache.at < 5 * 60 * 1000) return histCache.rows;
+  const rows = await sb('uea_loyalty_bookings?estimate=not.is.null&select=vehicle,estimate,status&order=created_at.desc&limit=500');
+  histCache = { at: Date.now(), rows };
+  return rows;
+}
+function historyFor(rows, jobId, v) {
+  const out = { all: 0, all_hours: 0, veh: 0, veh_hours: 0 };
+  const modelWord = v.model ? v.model.split(' ')[0].toLowerCase() : null;
+  for (const r of rows) {
+    const vl = String(r.vehicle || '').toLowerCase();
+    const same = v.make && vl.includes(v.make.toLowerCase()) && (!modelWord || vl.includes(modelWord));
+    for (const l of (r.estimate.lines || [])) {
+      if (l.guide_id !== jobId || l.type !== 'labor' || l.status === 'declined') continue;
+      out.all++; out.all_hours += Number(l.qty) || 0;
+      if (same) { out.veh++; out.veh_hours += Number(l.qty) || 0; }
+    }
+  }
+  return {
+    times_quoted: out.all, avg_hours: out.all ? Math.round(out.all_hours / out.all * 10) / 10 : null,
+    vehicle_times_quoted: out.veh, vehicle_avg_hours: out.veh ? Math.round(out.veh_hours / out.veh * 10) / 10 : null
+  };
+}
+
+function cleanParts(parts) {
+  return (Array.isArray(parts) ? parts : []).slice(0, 20).map(p => ({
+    name: String(p.name || '').trim().slice(0, 120),
+    part_no: p.part_no ? String(p.part_no).trim().slice(0, 60) : null,
+    qty: Math.min(100, Math.max(0, Number(p.qty) || 1)),
+    cost_cents: Math.max(0, Math.round(Number(p.cost_cents) || 0))
+  })).filter(p => p.name);
+}
+
+async function guideGuard(req) {
+  if (req.staff.role === 'tech') {
+    const cfg = await getConfig();
+    if (!cfg.tech_can_estimate) throw httpErr(403, 'The guide is for the service desk.');
+  }
+}
+
+router.get('/admin/guide', auth(ALL), h(async (req, res) => {
+  await guideGuard(req);
+  const [jobs, ovs] = await Promise.all([
+    sb('uea_guide_jobs?select=*&order=category.asc,name.asc'),
+    sb('uea_guide_overrides?select=job_id')
+  ]);
+  const counts = {};
+  ovs.forEach(o => { counts[o.job_id] = (counts[o.job_id] || 0) + 1; });
+  res.json({ jobs: jobs.map(j => Object.assign(j, { override_count: counts[j.id] || 0 })) });
+}));
+
+// Resolve every active job for one vehicle: vehicle-specific time if saved, plus your quoting history
+router.get('/admin/guide/lookup', auth(ALL), h(async (req, res) => {
+  await guideGuard(req);
+  const v = parseVehicle(req.query.vehicle || [req.query.year, req.query.make, req.query.model].filter(Boolean).join(' '));
+  const q = String(req.query.q || '').trim().toLowerCase();
+  const [jobs, ovs, hist] = await Promise.all([
+    sb('uea_guide_jobs?active=eq.true&select=*&order=category.asc,name.asc'),
+    v.make ? sb(`uea_guide_overrides?select=*&make=ilike.${enc(v.make)}`) : Promise.resolve([]),
+    recentEstimates().catch(() => [])
+  ]);
+  const words = q.split(/\s+/).filter(Boolean);
+  const results = jobs
+    .filter(j => !words.length || words.every(w => `${j.name} ${j.category} ${j.notes || ''} ${(j.parts || []).map(p => p.name).join(' ')}`.toLowerCase().includes(w)))
+    .map(j => {
+      let best = null, bestScore = 0;
+      ovs.filter(o => o.job_id === j.id).forEach(o => { const sc = overrideScore(o, v); if (sc > bestScore) { best = o; bestScore = sc; } });
+      return {
+        id: j.id, name: j.name, category: j.category, notes: [best && best.notes, j.notes].filter(Boolean).join(' '),
+        flat_cents: j.flat_cents,
+        labor_hours: best && best.labor_hours != null ? Number(best.labor_hours) : Number(j.labor_hours),
+        parts: best && Array.isArray(best.parts) && best.parts.length ? best.parts : j.parts,
+        source: best ? 'vehicle' : 'standard', override_label: best ? describeOverride(best) : null,
+        history: historyFor(hist, j.id, v)
+      };
+    });
+  res.json({ vehicle: { year: v.year, make: v.make, model: v.model, text: v.text }, results: results.slice(0, 60) });
+}));
+
+router.get('/admin/guide/job/:id', auth(DESK), h(async (req, res) => {
+  const job = (await sb(`uea_guide_jobs?id=eq.${enc(req.params.id)}&select=*`))[0];
+  if (!job) throw httpErr(404, 'Guide entry not found.');
+  const overrides = await sb(`uea_guide_overrides?job_id=eq.${enc(job.id)}&select=*&order=make.asc,model.asc`);
+  res.json({ job, overrides });
+}));
+
+function guideBody(b) {
+  const name = String(b.name || '').trim().slice(0, 120);
+  if (!name) throw httpErr(400, 'Give the job a name.');
+  const hours = Number(b.labor_hours);
+  const flat = b.flat_cents === '' || b.flat_cents == null ? null : Math.max(0, Math.round(Number(b.flat_cents) || 0));
+  if (flat == null && !(hours >= 0 && hours <= 100)) throw httpErr(400, 'Labor hours must be between 0 and 100.');
+  return {
+    name, category: String(b.category || 'Other').trim().slice(0, 60) || 'Other',
+    labor_hours: flat == null ? Math.round(hours * 100) / 100 : 0, flat_cents: flat,
+    parts: cleanParts(b.parts), notes: b.notes ? String(b.notes).trim().slice(0, 500) : null,
+    active: b.active !== false
+  };
+}
+
+router.post('/admin/guide', auth(DESK), h(async (req, res) => {
+  const body = guideBody(req.body || {});
+  const id = (body.name.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '').slice(0, 50) || 'job') + '_' + crypto.randomBytes(2).toString('hex');
+  const r = await sb('uea_guide_jobs', { method: 'POST', prefer: 'return=representation',
+    body: Object.assign(body, { id, updated_by: req.staff.name }) });
+  res.json({ job: r[0] });
+}));
+
+router.put('/admin/guide/job/:id', auth(DESK), h(async (req, res) => {
+  const body = guideBody(req.body || {});
+  const r = await sb(`uea_guide_jobs?id=eq.${enc(req.params.id)}`, { method: 'PATCH', prefer: 'return=representation',
+    body: Object.assign(body, { updated_by: req.staff.name, updated_at: new Date().toISOString() }) });
+  if (!r[0]) throw httpErr(404, 'Guide entry not found.');
+  res.json({ job: r[0] });
+}));
+
+function overrideBody(b) {
+  const make = String(b.make || '').trim().slice(0, 40);
+  if (!make) throw httpErr(400, 'Enter at least the make (for example, Ford).');
+  const yf = b.year_from ? parseInt(b.year_from, 10) : null, yt = b.year_to ? parseInt(b.year_to, 10) : null;
+  if ((yf && (yf < 1950 || yf > 2050)) || (yt && (yt < 1950 || yt > 2050)) || (yf && yt && yf > yt)) throw httpErr(400, 'Check the year range.');
+  const hours = b.labor_hours === '' || b.labor_hours == null ? null : Number(b.labor_hours);
+  if (hours != null && !(hours >= 0 && hours <= 100)) throw httpErr(400, 'Labor hours must be between 0 and 100.');
+  const parts = cleanParts(b.parts);
+  if (hours == null && !parts.length) throw httpErr(400, 'Enter the labor hours, the parts, or both for this vehicle.');
+  return { make: MAKE_ALIAS[make.toLowerCase()] || make, model: b.model ? String(b.model).trim().slice(0, 40) : null,
+    year_from: yf, year_to: yt, engine: b.engine ? String(b.engine).trim().slice(0, 30) : null,
+    labor_hours: hours, parts: parts.length ? parts : null, notes: b.notes ? String(b.notes).trim().slice(0, 300) : null };
+}
+
+// One click from an estimate: remember this labor time for this make/model/year
+router.post('/admin/guide/job/:id/save-vehicle-time', auth(DESK), h(async (req, res) => {
+  const job = (await sb(`uea_guide_jobs?id=eq.${enc(req.params.id)}&select=id,name`))[0];
+  if (!job) throw httpErr(404, 'Guide entry not found.');
+  const v = parseVehicle(req.body.vehicle);
+  if (!v.make) throw httpErr(400, 'Add the vehicle (year, make, model) to the job first.');
+  const hours = Number(req.body.labor_hours);
+  if (!(hours > 0 && hours <= 100)) throw httpErr(400, 'Enter the labor hours first.');
+  const existing = (await sb(`uea_guide_overrides?job_id=eq.${enc(job.id)}&make=ilike.${enc(v.make)}&select=*`))
+    .find(o => (o.model || '').toLowerCase() === (v.model || '').toLowerCase() && o.year_from === v.year && o.year_to === v.year && !o.engine);
+  const body = { make: v.make, model: v.model, year_from: v.year, year_to: v.year, labor_hours: Math.round(hours * 100) / 100, updated_by: req.staff.name, updated_at: new Date().toISOString() };
+  const r = existing
+    ? await sb(`uea_guide_overrides?id=eq.${existing.id}`, { method: 'PATCH', prefer: 'return=representation', body })
+    : await sb('uea_guide_overrides', { method: 'POST', prefer: 'return=representation', body: Object.assign(body, { job_id: job.id }) });
+  res.json({ override: r[0], label: describeOverride(r[0]) });
+}));
+
+router.post('/admin/guide/job/:id/overrides', auth(DESK), h(async (req, res) => {
+  const job = (await sb(`uea_guide_jobs?id=eq.${enc(req.params.id)}&select=id`))[0];
+  if (!job) throw httpErr(404, 'Guide entry not found.');
+  const r = await sb('uea_guide_overrides', { method: 'POST', prefer: 'return=representation',
+    body: Object.assign(overrideBody(req.body || {}), { job_id: job.id, updated_by: req.staff.name }) });
+  res.json({ override: r[0] });
+}));
+
+router.put('/admin/guide/overrides/:oid', auth(DESK), h(async (req, res) => {
+  const r = await sb(`uea_guide_overrides?id=eq.${enc(req.params.oid)}`, { method: 'PATCH', prefer: 'return=representation',
+    body: Object.assign(overrideBody(req.body || {}), { updated_by: req.staff.name, updated_at: new Date().toISOString() }) });
+  if (!r[0]) throw httpErr(404, 'Vehicle time not found.');
+  res.json({ override: r[0] });
+}));
+
+router.delete('/admin/guide/overrides/:oid', auth(DESK), h(async (req, res) => {
+  await sb(`uea_guide_overrides?id=eq.${enc(req.params.oid)}`, { method: 'DELETE' });
+  res.json({ ok: true });
+}));
+
 // ── Staff (owner only) ──────────────────────────────────────────────────────
 router.get('/admin/meta', auth(ALL), h(async (req, res) => {
   const cfg = await getConfig();
-  res.json({ time_windows: cfg.time_windows || [], payment_methods: cfg.payment_methods || [], tech_can_estimate: cfg.tech_can_estimate !== false });
+  res.json({ time_windows: cfg.time_windows || [], payment_methods: cfg.payment_methods || [], tech_can_estimate: cfg.tech_can_estimate !== false,
+    labor_rate_cents: cfg.labor_rate_cents || 0, parts_markup_pct: cfg.parts_markup_pct || 0, parts_tax_rate: cfg.parts_tax_rate || 0 });
 }));
 
 router.get('/admin/techs', auth(DESK), h(async (req, res) => { res.json({ techs: await listTechs() }); }));
@@ -1535,6 +1752,7 @@ router.post('/e/:token', h(async (req, res) => {
   }]);
   const stage = approved.length && j.stage === 'waiting_approval' ? 'in_progress' : j.stage;
   await patchJob(j.id, { estimate: est, stage });
+  histCache.at = 0; // guide history picks up this estimate right away
   await logEvent(j.id, `${name} (customer)`, 'estimate',
     `Customer approved ${approved.length ? approved.join(', ') : 'nothing'}${declined.length ? `; declined ${declined.join(', ')}` : ''}. Approved total ${money(totals.approved.total)}.`);
   if (stage !== j.stage) await logEvent(j.id, 'System', 'status', `${STAGE_LABEL[j.stage]} → ${STAGE_LABEL[stage]}`);
