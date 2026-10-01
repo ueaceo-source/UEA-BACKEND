@@ -1,0 +1,1049 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex,nofollow">
+<meta name="theme-color" content="#000000">
+<title>UEA Service Desk</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Oswald:wght@400;500;600&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --black:#000; --iron:#141414; --steel:#1f1f1f; --edge:#2e2e2e;
+  --gold:#CBA135; --gold-hi:#E6C76A; --gold-lo:#8E6F1F;
+  --purple:#6B2896; --purple-hi:#8A3FBF;
+  --text:#EDE8DC; --dim:#9A9488; --good:#5FBF7A; --bad:#E0605A; --warn:#E8A33C;
+  --display:'Bebas Neue',Impact,'Arial Narrow',sans-serif;
+  --head:'Oswald','Arial Narrow',Arial,sans-serif;
+  --body:'Inter',system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--black);color:var(--text);font:15px/1.5 var(--body)}
+body{padding-bottom:env(safe-area-inset-bottom)}
+button,input,select,textarea{font:inherit;color:inherit}
+:focus-visible{outline:2px solid var(--gold-hi);outline-offset:2px}
+a{color:var(--gold-hi)}
+.hide{display:none!important}
+.steel{background:linear-gradient(180deg,#1c1c1c 0%,#121212 100%);border:1px solid var(--edge);border-radius:6px}
+.btn{appearance:none;border:1px solid var(--gold-lo);border-radius:4px;padding:.55rem 1rem;cursor:pointer;text-decoration:none;display:inline-block;
+  font-family:var(--head);font-weight:500;letter-spacing:.03em;line-height:1.2;
+  background:linear-gradient(180deg,var(--gold-hi) 0%,var(--gold) 45%,var(--gold-lo) 100%);color:#140f02;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.45),0 1px 0 #000}
+.btn:hover{filter:brightness(1.08)}
+.btn:disabled{opacity:.5;cursor:default}
+.btn.ghost{background:transparent;color:var(--text);border-color:var(--edge);box-shadow:none}
+.btn.ghost:hover{border-color:var(--gold)}
+.btn.purple{background:linear-gradient(180deg,var(--purple-hi),var(--purple));color:#fff;border-color:#4a1a69}
+.btn.danger{background:transparent;border-color:#5a2522;color:var(--bad);box-shadow:none}
+.btn.sm{padding:.32rem .65rem;font-size:.86rem}
+input,select,textarea{background:#0a0a0a;border:1px solid var(--edge);border-radius:4px;padding:.55rem .7rem;width:100%}
+input:focus,select:focus,textarea:focus{border-color:var(--gold);outline:none}
+input[type=checkbox]{width:auto;accent-color:#CBA135}
+label{display:block;font-family:var(--head);font-size:.85rem;color:var(--dim);margin:0 0 .3rem}
+.field{margin-bottom:.9rem}
+.help{font-size:.82rem;color:var(--dim);margin-top:.25rem}
+.dim{color:var(--dim)}
+.row{display:flex;gap:.6rem;align-items:center;flex-wrap:wrap}
+.grid{display:grid;gap:.8rem}
+.g2{grid-template-columns:repeat(2,minmax(0,1fr))}
+.g3{grid-template-columns:repeat(3,minmax(0,1fr))}
+.g4{grid-template-columns:repeat(4,minmax(0,1fr))}
+.g5{grid-template-columns:repeat(5,minmax(0,1fr))}
+h2{font-family:var(--display);font-weight:400;font-size:2.4rem;letter-spacing:.03em;margin:0 0 1.1rem;line-height:1}
+h3{font-family:var(--head);font-weight:500;font-size:1.08rem;margin:0 0 .7rem}
+.panel{padding:1rem 1.1rem}
+.empty{padding:2rem 1rem;text-align:center;color:var(--dim)}
+.err-text{color:var(--bad);font-size:.9rem;margin-top:.5rem}
+.pts{font-family:var(--head);font-weight:600;white-space:nowrap}
+.plus{color:var(--good)} .minus{color:var(--bad)}
+table{width:100%;border-collapse:collapse}
+th{text-align:left;font-family:var(--head);font-weight:500;color:var(--dim);font-size:.85rem;padding:.5rem .6rem;border-bottom:1px solid var(--edge)}
+td{padding:.6rem;border-bottom:1px solid #1b1b1b;vertical-align:top}
+tr.click{cursor:pointer}
+tr.click:hover td{background:#0f0f0f}
+.scroll{overflow-x:auto}
+.chip{display:inline-block;font-family:var(--head);font-size:.78rem;padding:.02rem .45rem;border-radius:3px;border:1px solid var(--edge);color:var(--dim);white-space:nowrap;line-height:1.5}
+.chip.gold,.chip.active{border-color:var(--gold-lo);color:var(--gold-hi)}
+.chip.purple,.chip.applied{border-color:var(--purple);color:#c9a2e6}
+.chip.good,.chip.used{color:var(--good);border-color:#2c5a37}
+.chip.bad,.chip.void{color:var(--bad);border-color:#5a2522}
+.chip.warn{color:var(--warn);border-color:#6a4a16}
+
+/* login */
+#login{min-height:100vh;display:grid;place-items:center;padding:1.5rem}
+#login form{width:100%;max-width:380px;padding:2rem}
+.mark{display:flex;align-items:center;gap:.8rem;margin-bottom:1.5rem}
+.bolt{width:44px;height:44px;flex:none;clip-path:polygon(25% 3%,75% 3%,100% 50%,75% 97%,25% 97%,0 50%);
+  background:linear-gradient(135deg,var(--gold-hi),var(--gold) 40%,var(--gold-lo));display:grid;place-items:center}
+.bolt::after{content:'';width:46%;height:46%;border-radius:50%;background:radial-gradient(circle at 35% 35%,#3a2a05,#000)}
+.mark h1{font-family:var(--display);font-size:2rem;letter-spacing:.04em;margin:0;line-height:1}
+.mark small{display:block;color:var(--dim);font-family:var(--head);font-size:.85rem}
+
+/* shell */
+#app{display:grid;grid-template-columns:210px 1fr;min-height:100vh}
+nav{border-right:1px solid var(--edge);padding:1.1rem .7rem;background:#070707;position:sticky;top:0;height:100vh;overflow-y:auto;display:flex;flex-direction:column}
+nav .mark{margin:0 .4rem 1.2rem}
+nav .mark h1{font-size:1.45rem}
+nav .grp{font-family:var(--head);font-size:.78rem;color:#6e6a62;margin:.9rem .8rem .25rem}
+nav button.tab{display:flex;justify-content:space-between;align-items:center;width:100%;text-align:left;background:none;border:0;
+  border-left:3px solid transparent;padding:.5rem .8rem;margin-bottom:.1rem;cursor:pointer;font-family:var(--head);font-size:1rem;color:var(--dim)}
+nav button.tab:hover{color:var(--text)}
+nav button.tab.on{color:var(--gold-hi);border-left-color:var(--gold);background:linear-gradient(90deg,rgba(203,161,53,.1),transparent)}
+.count{background:var(--purple);color:#fff;border-radius:10px;font-size:.75rem;padding:0 .45rem;font-family:var(--body)}
+nav .who{margin-top:auto;padding:.8rem;font-size:.85rem;color:var(--dim);border-top:1px solid var(--edge)}
+main{padding:1.6rem 1.8rem 5rem;min-width:0}
+
+/* jobs */
+.board{display:grid;grid-auto-flow:column;grid-auto-columns:minmax(230px,1fr);gap:.7rem;overflow-x:auto;padding-bottom:.6rem}
+.col{background:#0b0b0b;border:1px solid var(--edge);border-radius:6px;padding:.55rem;min-height:120px}
+.col h4{font-family:var(--head);font-weight:500;font-size:.92rem;margin:.1rem .2rem .55rem;display:flex;justify-content:space-between;color:var(--dim)}
+.col h4 b{color:var(--text);font-weight:500}
+.card{display:block;width:100%;text-align:left;background:linear-gradient(180deg,#1a1a1a,#121212);border:1px solid var(--edge);border-radius:5px;padding:.6rem .65rem;margin-bottom:.5rem;cursor:pointer;color:var(--text)}
+.card:hover{border-color:var(--gold-lo)}
+.card .t{font-family:var(--head);font-weight:500;font-size:.98rem;line-height:1.25}
+.card .s{font-size:.84rem;color:var(--dim);margin-top:.15rem;line-height:1.35}
+.card .f{display:flex;gap:.3rem;flex-wrap:wrap;margin-top:.4rem}
+.day{display:grid;gap:.7rem}
+.stop{display:grid;grid-template-columns:110px 1fr auto;gap:1rem;align-items:start;padding:.9rem 1rem}
+.stop .when{font-family:var(--display);font-size:1.35rem;line-height:1.05;color:var(--gold-hi)}
+.stop .when small{display:block;font-family:var(--body);font-size:.78rem;color:var(--dim);letter-spacing:0}
+.stop .who{font-family:var(--head);font-size:1.08rem}
+.stop .acts{display:flex;flex-direction:column;gap:.35rem;min-width:118px}
+
+/* drawer */
+#drawer{position:fixed;inset:0;background:rgba(0,0,0,.72);display:flex;justify-content:flex-end;z-index:20}
+#drawer .sheet{width:min(760px,100%);height:100%;overflow-y:auto;background:var(--iron);border-left:1px solid var(--gold-lo);padding:1.2rem 1.4rem 4rem}
+.dtabs{display:flex;gap:.2rem;border-bottom:1px solid var(--edge);margin:1rem 0 1rem;position:sticky;top:-1.2rem;background:var(--iron);z-index:2;padding-top:.4rem;overflow-x:auto}
+.dtabs button{background:none;border:0;border-bottom:2px solid transparent;padding:.5rem .8rem;font-family:var(--head);font-size:.98rem;color:var(--dim);cursor:pointer;white-space:nowrap}
+.dtabs button.on{color:var(--gold-hi);border-bottom-color:var(--gold)}
+.kv{display:grid;grid-template-columns:130px 1fr;gap:.35rem .8rem;font-size:.93rem}
+.kv dt{color:var(--dim)} .kv dd{margin:0}
+.sec{margin-bottom:1rem}
+.est td{padding:.35rem .3rem;border-bottom:1px solid #1b1b1b}
+.est input,.est select{padding:.38rem .45rem;font-size:.9rem}
+.est .amt{font-family:var(--head);text-align:right;white-space:nowrap;padding-top:.6rem}
+.totals{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:.8rem}
+.totals table td{border:0;padding:.18rem .2rem}
+.totals .big td{font-family:var(--head);font-size:1.1rem;color:var(--gold-hi);border-top:1px solid var(--edge);padding-top:.4rem}
+.ev{display:grid;grid-template-columns:112px 1fr;gap:.6rem;padding:.5rem 0;border-bottom:1px solid #1b1b1b;font-size:.9rem}
+.ev .k{font-family:var(--head);font-size:.78rem;color:var(--dim)}
+.tierline{display:flex;align-items:center;gap:1rem;margin:1rem 0}
+.tierline .bolt{width:64px;height:64px}
+.tierline .bolt::after{display:none}
+.tierline .bolt b{font-family:var(--display);font-weight:400;color:#140f02;font-size:1.05rem}
+.bar{height:6px;background:#000;border:1px solid var(--edge);border-radius:3px;overflow:hidden}
+.bar i{display:block;height:100%;background:linear-gradient(90deg,var(--purple),var(--gold))}
+.gauges{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:1px;background:var(--edge);border:1px solid var(--edge);border-radius:6px;overflow:hidden;margin-bottom:1rem}
+.gauge{background:var(--iron);padding:1.1rem 1.2rem}
+.gauge b{display:block;font-family:var(--display);font-weight:400;font-size:2.5rem;line-height:1;color:var(--gold-hi)}
+.gauge span{font-family:var(--head);color:var(--dim);font-size:.9rem}
+.gauge em{display:block;font-style:normal;font-size:.8rem;color:var(--dim);margin-top:.3rem}
+.settings table input{padding:.35rem .5rem}
+#toast{position:fixed;left:50%;bottom:calc(1.5rem + env(safe-area-inset-bottom));transform:translateX(-50%);background:var(--steel);border:1px solid var(--gold);padding:.7rem 1.1rem;border-radius:4px;z-index:40;font-family:var(--head);max-width:92vw}
+#toast.err{border-color:var(--bad)}
+
+@media (max-width:900px){
+  #app{grid-template-columns:1fr}
+  nav{position:sticky;top:0;height:auto;z-index:10;flex-direction:row;overflow-x:auto;gap:.15rem;padding:.5rem;border-right:0;border-bottom:1px solid var(--edge)}
+  nav .mark,nav .grp,nav .who{display:none}
+  nav button.tab{width:auto;white-space:nowrap;border-left:0;border-bottom:2px solid transparent;margin:0;padding:.45rem .7rem}
+  nav button.tab.on{border-bottom-color:var(--gold);background:none}
+  main{padding:1.1rem .9rem 5rem}
+  .gauges,.g4,.g5{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .g2,.g3,.totals{grid-template-columns:1fr}
+  h2{font-size:2rem}
+  .stop{grid-template-columns:1fr}
+  .stop .acts{flex-direction:row;flex-wrap:wrap}
+  #drawer .sheet{padding:1rem 1rem 4rem}
+  .kv{grid-template-columns:100px 1fr}
+}
+@media (prefers-reduced-motion:no-preference){
+  #drawer .sheet{animation:slide .18s ease-out}
+  @keyframes slide{from{transform:translateX(30px);opacity:.4}to{transform:none;opacity:1}}
+}
+</style>
+</head>
+<body>
+
+<section id="login" class="hide">
+  <form class="steel" id="loginForm">
+    <div class="mark"><div class="bolt"></div><div><h1>Upper Echelon</h1><small>Service desk</small></div></div>
+    <div class="field"><label for="em">Email</label><input id="em" type="email" autocomplete="username" required></div>
+    <div class="field"><label for="pw">Password</label><input id="pw" type="password" autocomplete="current-password" required></div>
+    <button class="btn" style="width:100%">Sign in</button>
+    <div id="loginErr" class="err-text"></div>
+  </form>
+</section>
+
+<div id="app" class="hide">
+  <nav id="nav"></nav>
+  <main id="view"></main>
+</div>
+
+<div id="drawer" class="hide"><div class="sheet" id="sheet" role="dialog" aria-modal="true"></div></div>
+<div id="toast" class="hide" role="status"></div>
+
+<script>
+(function(){
+'use strict';
+var API = location.pathname.replace(/\/admin\/?$/, '');
+var TOKEN_KEY = 'uea_desk_token', ME_KEY = 'uea_desk_me';
+var S = { tab:null, token:null, me:null, settings:null, prefill:null, jobsView:'board', methods:null };
+
+/* ───────── helpers ───────── */
+function $(s, r){ return (r||document).querySelector(s); }
+function $$(s, r){ return Array.prototype.slice.call((r||document).querySelectorAll(s)); }
+function esc(v){ return String(v == null ? '' : v).replace(/[&<>"']/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; }); }
+function usd(c){ return '$' + (Number(c||0)/100).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}); }
+function n(v){ return Number(v||0).toLocaleString(); }
+function when(d){ if(!d) return ''; var x=new Date(d); return x.toLocaleDateString(undefined,{month:'short',day:'numeric',year:x.getFullYear()!==new Date().getFullYear()?'numeric':undefined})+' '+x.toLocaleTimeString(undefined,{hour:'numeric',minute:'2-digit'}); }
+function dayLabel(iso){ if(!iso) return ''; var p=String(iso).slice(0,10).split('-'); var d=new Date(Date.UTC(+p[0],+p[1]-1,+p[2])); return d.toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric',timeZone:'UTC'}); }
+function signed(p){ p=Number(p); return '<span class="pts '+(p>=0?'plus':'minus')+'">'+(p>=0?'+':'')+n(p)+'</span>'; }
+function telHref(p){ return 'tel:'+String(p||'').replace(/[^\d+]/g,''); }
+function smsHref(p){ return 'sms:'+String(p||'').replace(/[^\d+]/g,''); }
+function mapHref(a){ return 'https://www.google.com/maps/dir/?api=1&destination='+encodeURIComponent(a||''); }
+function dollars(c){ return c ? (Number(c)/100).toFixed(2) : ''; }
+function cents(v){ return Math.round((parseFloat(v)||0)*100); }
+function isRole(){ var r=S.me&&S.me.role; return Array.prototype.slice.call(arguments).indexOf(r)>-1; }
+var DESK = function(){ return isRole('owner','writer'); };
+var OWN = function(){ return isRole('owner'); };
+var TYPE = {earn:'Service',welcome:'Welcome',referral:'Referral',review:'Review',redeem:'Redeemed',void:'Returned',adjust:'Adjustment',refund:'Refund',bonus:'Bonus',expire:'Expired'};
+var STAGE_CHIP = {new:'gold',scheduled:'',en_route:'purple',on_site:'purple',waiting_approval:'warn',waiting_parts:'warn',in_progress:'purple',completed:'good'};
+var STAGES = [['new','New'],['scheduled','Scheduled'],['en_route','On the way'],['on_site','On site'],['waiting_approval','Waiting on approval'],['waiting_parts','Waiting on parts'],['in_progress','Working'],['completed','Done, not paid']];
+function stageLabel(k){ for(var i=0;i<STAGES.length;i++) if(STAGES[i][0]===k) return STAGES[i][1]; return k; }
+function stageChip(j){
+  if(j.status==='paid') return '<span class="chip good">Paid</span>';
+  if(j.status==='cancelled') return '<span class="chip bad">Cancelled</span>';
+  return '<span class="chip '+(STAGE_CHIP[j.stage]||'')+'">'+esc(stageLabel(j.stage))+'</span>';
+}
+function fe(f, n){ return f.querySelector('[name="'+n+'"]'); }
+function fill(tpl, v){ return String(tpl||'').replace(/\{(\w+)\}/g, function(m,k){ return v[k]!=null?String(v[k]):''; }).replace(/\s{2,}/g,' ').trim(); }
+
+function toast(msg, err){
+  var t=$('#toast'); t.textContent=msg; t.className=err?'err':''; clearTimeout(t._h);
+  t._h=setTimeout(function(){ t.className='hide'; }, 3500);
+}
+function api(path, opts){
+  opts = opts || {};
+  return fetch(API + path, {
+    method: opts.method || 'GET',
+    headers: { 'Content-Type':'application/json', 'Authorization':'Bearer '+(S.token||'') },
+    body: opts.body ? JSON.stringify(opts.body) : undefined
+  }).then(function(r){
+    return r.json().catch(function(){ return {}; }).then(function(d){
+      if (r.status===401 && path!=='/admin/login') { signOut(); throw new Error(d.error||'Signed out'); }
+      if (!r.ok) throw new Error(d.error || ('Request failed ('+r.status+')'));
+      return d;
+    });
+  });
+}
+function busy(btn, on, label){ if(!btn) return; if(on){ btn._t=btn.textContent; btn.disabled=true; btn.textContent=label||'Working…'; } else { btn.disabled=false; if(btn._t) btn.textContent=btn._t; } }
+
+/* ───────── auth ───────── */
+function signOut(){
+  try{ sessionStorage.removeItem(TOKEN_KEY); sessionStorage.removeItem(ME_KEY); }catch(e){}
+  S.token=null; S.me=null; $('#drawer').classList.add('hide');
+  $('#app').classList.add('hide'); $('#login').classList.remove('hide'); $('#em').focus();
+}
+$('#loginForm').addEventListener('submit', function(e){
+  e.preventDefault(); $('#loginErr').textContent='';
+  var b=e.target.querySelector('button'); busy(b,true,'Signing in…');
+  api('/admin/login',{method:'POST',body:{email:$('#em').value,password:$('#pw').value}}).then(function(d){
+    S.token=d.token; S.me=d.staff;
+    try{ sessionStorage.setItem(TOKEN_KEY,d.token); sessionStorage.setItem(ME_KEY,JSON.stringify(d.staff)); }catch(e){}
+    $('#pw').value=''; start();
+  }).catch(function(err){ $('#loginErr').textContent=err.message; }).then(function(){ busy(b,false); });
+});
+
+var NAV = [
+  {grp:'Work'},
+  {tab:'today', label:function(){ return isRole('tech')?'My day':'Today'; }, roles:['owner','writer','tech']},
+  {tab:'jobs', label:function(){ return isRole('tech')?'My jobs':'Jobs'; }, roles:['owner','writer','tech'], count:'cJobs'},
+  {tab:'new', label:'New job', roles:['owner','writer']},
+  {tab:'followups', label:'Follow-ups', roles:['owner','writer'], count:'cFollow'},
+  {grp:'Customers', roles:['owner','writer']},
+  {tab:'customers', label:'Customers', roles:['owner','writer']},
+  {tab:'vouchers', label:'Reward vouchers', roles:['owner','writer'], count:'cVouchers'},
+  {tab:'points', label:'Add points', roles:['owner']},
+  {grp:'Business', roles:['owner']},
+  {tab:'overview', label:'Overview', roles:['owner']},
+  {tab:'staff', label:'Team & access', roles:['owner']},
+  {tab:'settings', label:'Settings', roles:['owner']},
+  {grp:'You'},
+  {tab:'account', label:'My account', roles:['owner','writer','tech']}
+];
+function buildNav(){
+  var r=S.me.role, h='<div class="mark"><div class="bolt"></div><div><h1>Upper Echelon</h1><small>Service desk</small></div></div>';
+  NAV.forEach(function(it){
+    if(it.roles && it.roles.indexOf(r)<0) return;
+    if(it.grp){ h+='<div class="grp">'+it.grp+'</div>'; return; }
+    var lab=typeof it.label==='function'?it.label():it.label;
+    h+='<button class="tab" data-tab="'+it.tab+'">'+esc(lab)+(it.count?' <span class="count hide" id="'+it.count+'"></span>':'')+'</button>';
+  });
+  h+='<div class="who">'+esc(S.me.name)+'<br>'+esc({owner:'Owner',writer:'Service writer',tech:'Technician'}[r])+'</div>';
+  $('#nav').innerHTML=h;
+  $$('#nav .tab').forEach(function(b){ b.addEventListener('click', function(){ go(b.dataset.tab); }); });
+}
+function start(){
+  $('#login').classList.add('hide'); $('#app').classList.remove('hide');
+  buildNav(); go(S.tab||'today'); refreshCounts();
+  api('/admin/me').then(function(d){ S.me=d.staff; try{ sessionStorage.setItem(ME_KEY,JSON.stringify(d.staff)); }catch(e){} }).catch(function(){});
+}
+function setCount(id, v){ var el=$('#'+id); if(!el) return; el.textContent=v; el.classList.toggle('hide', !v); }
+function refreshCounts(){
+  api('/admin/jobs?view=open').then(function(d){ setCount('cJobs', d.jobs.length); }).catch(function(){});
+  if(DESK()){
+    api('/admin/followups').then(function(d){ setCount('cFollow', d.followups.filter(function(f){return f.due;}).length); }).catch(function(){});
+    api('/admin/vouchers?status=open').then(function(d){ setCount('cVouchers', d.vouchers.length); }).catch(function(){});
+  }
+}
+var VIEWS = {};
+function go(tab){
+  var allowed=$$('#nav .tab').map(function(b){ return b.dataset.tab; });
+  if(allowed.indexOf(tab)<0) tab='today';
+  S.tab=tab; $$('#nav .tab').forEach(function(b){ b.classList.toggle('on', b.dataset.tab===tab); });
+  $('#view').innerHTML='<div class="empty">Loading…</div>';
+  VIEWS[tab]();
+}
+function fail(err){ $('#view').innerHTML='<div class="empty">'+esc(err.message)+'</div>'; }
+function rerender(){ if(VIEWS[S.tab]) VIEWS[S.tab](); refreshCounts(); }
+
+/* ───────── TODAY ───────── */
+VIEWS.today = function(){
+  var tech=isRole('tech');
+  Promise.all([api('/admin/jobs?view=today'), DESK()?api('/admin/jobs?view=open'):Promise.resolve(null), DESK()?api('/admin/techs'):Promise.resolve({techs:[]})]).then(function(r){
+    var d=r[0], open=r[1], techs=r[2].techs, today=d.today;
+    var unsched = open ? open.jobs.filter(function(j){ return !j.sched_date; }) : [];
+    var waiting = open ? open.jobs.filter(function(j){ return j.stage==='waiting_approval'; }) : [];
+    var unpaid = open ? open.jobs.filter(function(j){ return j.stage==='completed'; }) : [];
+    var h='<h2>'+(tech?'My day':'Today')+'</h2><p class="dim" style="margin:-.7rem 0 1rem">'+dayLabel(today)+'</p>';
+    if(DESK()){
+      h+='<div class="grid g3" style="margin-bottom:1rem">'+
+        miniLink('Need scheduling', unsched.length, 'jobs')+miniLink('Waiting on customer approval', waiting.length, 'jobs')+miniLink('Done but not paid', unpaid.length, 'jobs')+'</div>';
+      if(techs.length) h+='<div class="row" style="margin-bottom:.8rem"><select id="tFilter" style="width:auto"><option value="">Everyone</option><option value="none">Unassigned</option>'+techs.map(function(t){return '<option value="'+t.id+'">'+esc(t.name)+'</option>';}).join('')+'</select></div>';
+    }
+    h+='<div class="day" id="dayList"></div>';
+    $('#view').innerHTML=h;
+    $$('[data-goto]').forEach(function(b){ b.addEventListener('click', function(){ go(b.dataset.goto); }); });
+    function paint(filter){
+      var jobs=d.jobs.filter(function(j){ return !filter || (filter==='none'?!j.tech_id:j.tech_id===filter); });
+      $('#dayList').innerHTML = jobs.length ? jobs.map(function(j){
+        var late=j.sched_date && j.sched_date<today;
+        return '<div class="steel stop"><div class="when">'+esc(j.sched_window||'Any time')+(late?'<small style="color:var(--warn)">From '+dayLabel(j.sched_date)+'</small>':'')+'</div>'+
+          '<div><div class="who">'+esc(j.customer_name||'Customer')+' '+stageChip(j)+(j.rush?' <span class="chip bad">Rush</span>':'')+'</div>'+
+          '<div>'+esc(j.service||'')+(j.vehicle?' <span class="dim">on '+esc(j.vehicle)+'</span>':'')+'</div>'+
+          (j.address?'<div class="dim" style="font-size:.88rem">'+esc(j.address)+'</div>':'')+
+          (DESK()?'<div class="dim" style="font-size:.85rem">'+(j.tech?esc(j.tech.name):'<span style="color:var(--warn)">Unassigned</span>')+'</div>':'')+'</div>'+
+          '<div class="acts">'+(j.address?'<a class="btn ghost sm" target="_blank" rel="noopener" href="'+mapHref(j.address)+'">Navigate</a>':'')+
+          (j.phone?'<a class="btn ghost sm" href="'+telHref(j.phone)+'">Call</a>':'')+
+          '<button class="btn sm" data-job="'+j.id+'">Open job</button></div></div>';
+      }).join('') : '<div class="steel empty">'+(tech?'Nothing assigned to you today.':'Nothing scheduled for today.')+(DESK()&&unsched.length?' <a href="#" data-goto="jobs">'+unsched.length+' job'+(unsched.length>1?'s':'')+' need scheduling.</a>':'')+'</div>';
+      $$('#dayList [data-job]').forEach(function(b){ b.addEventListener('click', function(){ openJob(b.dataset.job); }); });
+      $$('#dayList [data-goto]').forEach(function(b){ b.addEventListener('click', function(e){ e.preventDefault(); go(b.dataset.goto); }); });
+    }
+    paint('');
+    if($('#tFilter')) $('#tFilter').addEventListener('change', function(){ paint(this.value); });
+  }).catch(fail);
+};
+function miniLink(label, v, tab){ return '<button class="steel panel" data-goto="'+tab+'" style="text-align:left;cursor:pointer;color:var(--text)"><div class="dim" style="font-family:var(--head);font-size:.85rem">'+label+'</div><div style="font-family:var(--display);font-size:2rem;line-height:1.1;color:'+(v?'var(--gold-hi)':'var(--text)')+'">'+n(v)+'</div></button>'; }
+
+/* ───────── JOBS BOARD ───────── */
+VIEWS.jobs = function(){
+  var h='<h2>'+(isRole('tech')?'My jobs':'Jobs')+'</h2><div class="row" style="margin-bottom:1rem">'+
+    '<div class="row" role="tablist"><button class="btn sm '+(S.jobsView==='board'?'':'ghost')+'" data-jv="board">Open jobs</button><button class="btn sm '+(S.jobsView==='history'?'':'ghost')+'" data-jv="history">Paid & cancelled</button></div>'+
+    '<input id="jq" placeholder="Search name, phone, VIN, order #, address" style="flex:1;min-width:200px">'+
+    (DESK()?'<select id="jt" style="width:auto"><option value="">Everyone</option><option value="none">Unassigned</option></select><button class="btn purple sm" data-goto="new">New job</button>':'')+
+    '</div><div id="jlist"></div>';
+  $('#view').innerHTML=h;
+  $$('[data-jv]').forEach(function(b){ b.addEventListener('click', function(){ S.jobsView=b.dataset.jv; VIEWS.jobs(); }); });
+  $$('[data-goto]').forEach(function(b){ b.addEventListener('click', function(){ go(b.dataset.goto); }); });
+  if(DESK()) api('/admin/techs').then(function(d){ $('#jt').insertAdjacentHTML('beforeend', d.techs.map(function(t){return '<option value="'+t.id+'">'+esc(t.name)+'</option>';}).join('')); });
+  var t; $('#jq').addEventListener('input', function(){ clearTimeout(t); t=setTimeout(loadJobs, 250); });
+  if($('#jt')) $('#jt').addEventListener('change', loadJobs);
+  loadJobs();
+};
+function loadJobs(){
+  var q=$('#jq').value, tech=$('#jt')?$('#jt').value:'';
+  var hist=S.jobsView==='history';
+  api('/admin/jobs?view='+(hist?'history':'open')+'&q='+encodeURIComponent(q)+'&tech='+encodeURIComponent(tech)).then(function(d){
+    if(hist){
+      $('#jlist').innerHTML = d.jobs.length ? '<div class="steel scroll"><table><tr><th>Job</th><th>Customer</th><th>Service</th><th>Status</th></tr>'+d.jobs.map(function(j){
+        return '<tr class="click" data-job="'+j.id+'"><td><b style="font-family:var(--head)">'+esc(j.order_name||'Phone job')+'</b><div class="dim" style="font-size:.8rem">'+when(j.paid_at||j.created_at)+'</div></td><td>'+esc(j.customer_name||j.email||'')+'</td><td>'+esc(j.service||'')+'<div class="dim" style="font-size:.82rem">'+esc(j.vehicle||'')+'</div></td><td>'+stageChip(j)+(j.status==='paid'?'<div class="dim" style="font-size:.82rem">'+usd(j.total_cents)+'</div>':'')+'</td></tr>';
+      }).join('')+'</table></div>' : '<div class="steel empty">No paid or cancelled jobs match.</div>';
+    } else {
+      var cols=STAGES.map(function(s){ return {k:s[0], l:s[1], jobs:d.jobs.filter(function(j){ return j.stage===s[0]; })}; });
+      if(isRole('tech')) cols=cols.filter(function(c){ return c.jobs.length || ['scheduled','on_site','in_progress'].indexOf(c.k)>-1; });
+      $('#jlist').innerHTML = '<div class="board">'+cols.map(function(c){
+        return '<div class="col"><h4><b>'+c.l+'</b><span>'+c.jobs.length+'</span></h4>'+(c.jobs.length?c.jobs.map(card).join(''):'<div class="dim" style="font-size:.82rem;padding:.3rem">None</div>')+'</div>';
+      }).join('')+'</div>';
+    }
+    $$('#jlist [data-job]').forEach(function(el){ el.addEventListener('click', function(){ openJob(el.dataset.job); }); });
+  }).catch(function(e){ $('#jlist').innerHTML='<div class="empty">'+esc(e.message)+'</div>'; });
+}
+function card(j){
+  var est=j.estimate&&j.estimate.lines&&j.estimate.lines.length;
+  return '<button class="card" data-job="'+j.id+'"><div class="t">'+esc(j.customer_name||'Customer')+'</div>'+
+    '<div class="s">'+esc(j.service||'No service listed')+(j.vehicle?'<br>'+esc(j.vehicle):'')+'</div>'+
+    '<div class="s">'+(j.sched_date?dayLabel(j.sched_date)+(j.sched_window?', '+esc(j.sched_window):''):'<span style="color:var(--warn)">Not scheduled</span>')+
+    (j.tech?' &middot; '+esc(j.tech.name):(DESK()?' &middot; <span style="color:var(--warn)">No tech</span>':''))+'</div>'+
+    '<div class="f">'+(j.order_name?'<span class="chip">'+esc(j.order_name)+'</span>':'<span class="chip">Phone</span>')+
+    (j.rush?'<span class="chip bad">Rush</span>':'')+(j.voucher_code?'<span class="chip purple">Reward</span>':'')+
+    (est?'<span class="chip gold">Estimate</span>':'')+(j.member&&j.member.is_fleet?'<span class="chip">Fleet</span>':'')+'</div></button>';
+}
+
+/* ───────── JOB DRAWER ───────── */
+var J = null; // current job payload
+function openJob(id, tab, preset){
+  var d=$('#drawer'), sh=$('#sheet'); d.classList.remove('hide');
+  var keepTab = J && J.booking.id===id ? J.tab : null;
+  if(!keepTab) sh.innerHTML='<div class="empty">Loading…</div>';
+  api('/admin/booking/'+id).then(function(x){
+    J=x; J.tab = tab || keepTab || 'job'; J.preset = preset || null; S.methods=x.payment_methods;
+    renderJob();
+  }).catch(function(e){ sh.innerHTML='<div class="empty">'+esc(e.message)+'</div><button class="btn ghost sm" id="closeDrawer">Close</button>'; $('#closeDrawer').addEventListener('click', closeDrawer); });
+}
+function closeDrawer(){ $('#drawer').classList.add('hide'); J=null; rerender(); }
+$('#drawer').addEventListener('click', function(e){ if(e.target.id==='drawer') closeDrawer(); });
+document.addEventListener('keydown', function(e){ if(e.key==='Escape' && !$('#drawer').classList.contains('hide')) closeDrawer(); });
+
+function renderJob(){
+  var b=J.booking, open=b.status==='open';
+  var tabs=[['job','Job'],['estimate','Estimate'+(J.totals.pending&&b.estimate_token?' •':'')],['texts','Texts'],['payment','Payment'],['history','Notes & history']];
+  if(isRole('tech')) tabs=tabs.filter(function(t){ return t[0]!=='payment'; });
+  var h='<div class="row" style="justify-content:space-between;align-items:flex-start"><div>'+
+      '<h2 style="margin:0 0 .3rem">'+esc(b.customer_name||'Customer')+'</h2>'+
+      '<div class="row" style="gap:.4rem">'+stageChip(b)+(b.order_name?'<span class="chip">'+esc(b.order_name)+'</span>':'<span class="chip">Phone job</span>')+(b.rush?'<span class="chip bad">Rush</span>':'')+
+      (J.tier&&!(J.member&&J.member.is_fleet)?'<span class="chip gold">'+esc(J.tier.name)+' member</span>':'')+(J.member&&J.member.is_fleet?'<span class="chip">Fleet</span>':'')+'</div></div>'+
+      '<button class="btn ghost sm" id="closeDrawer">Close</button></div>';
+  if(open){
+    h+='<div class="row" style="margin-top:.9rem;gap:.4rem">'+
+      '<select id="stageSel" style="width:auto">'+STAGES.map(function(s){ return '<option value="'+s[0]+'"'+(s[0]===b.stage?' selected':'')+'>'+s[1]+'</option>'; }).join('')+'</select>'+
+      (b.phone?'<a class="btn ghost sm" href="'+telHref(b.phone)+'">Call</a>':'')+
+      (b.address?'<a class="btn ghost sm" target="_blank" rel="noopener" href="'+mapHref(b.address)+'">Navigate</a>':'')+
+      (['new','scheduled'].indexOf(b.stage)>-1&&b.phone?'<button class="btn purple sm" data-quick="onway">On my way</button>':'')+
+      (['en_route','scheduled'].indexOf(b.stage)>-1?'<button class="btn ghost sm" data-quick="arrived">Arrived</button>':'')+
+      (['on_site','in_progress','waiting_parts'].indexOf(b.stage)>-1?'<button class="btn sm" data-quick="done">Work done</button>':'')+
+      '</div>';
+  }
+  h+='<div class="dtabs">'+tabs.map(function(t){ return '<button data-dt="'+t[0]+'" class="'+(J.tab===t[0]?'on':'')+'">'+t[1]+'</button>'; }).join('')+'</div><div id="dbody"></div>';
+  $('#sheet').innerHTML=h;
+  $('#closeDrawer').addEventListener('click', closeDrawer);
+  $$('[data-dt]').forEach(function(t){ t.addEventListener('click', function(){ J.tab=t.dataset.dt; renderJob(); }); });
+  if($('#stageSel')) $('#stageSel').addEventListener('change', function(){ patchJob({stage:this.value}, 'Stage updated'); });
+  $$('[data-quick]').forEach(function(btn){ btn.addEventListener('click', function(){
+    var q=btn.dataset.quick;
+    if(q==='onway'){ J.tab='texts'; J.preset='on_way'; renderJob(); return; }
+    if(q==='arrived') patchJob({stage:'on_site'}, 'Marked on site');
+    if(q==='done') patchJob({stage:'completed'}, 'Marked done. '+(DESK()?'Next: payment.':'The desk will collect payment.'));
+  }); });
+  ({job:tabJob,estimate:tabEstimate,texts:tabTexts,payment:tabPayment,history:tabHistory})[J.tab]();
+  $('#sheet').scrollTop=0;
+}
+function patchJob(body, msg){
+  return api('/admin/booking/'+J.booking.id,{method:'PATCH',body:body}).then(function(){ toast(msg||'Saved'); openJob(J.booking.id); }).catch(function(e){ toast(e.message,true); openJob(J.booking.id); });
+}
+
+/* Job tab */
+function tabJob(){
+  var b=J.booking, open=b.status==='open', desk=DESK();
+  var dis=function(deskOnly){ return (!open && deskOnly!=='always') || (deskOnly===true && !desk) ? ' disabled' : ''; };
+  var details=(b.details||[]).filter(function(p){ return p.value && !/^(rewards member|reward voucher)$/i.test(p.name); });
+  var h='<form id="jobForm">';
+  h+='<div class="steel panel sec"><h3>Customer</h3><div class="grid g2">'+
+    fld('Name','customer_name',b.customer_name,dis(true))+fld('Phone','phone',b.phone,dis(true),'tel')+
+    fld('Email','email',b.email,dis(true),'email')+fld('Service address','address',b.address,dis(true))+'</div>'+
+    (J.member?'<div class="dim" style="font-size:.88rem">'+(J.member.is_fleet?'Fleet account. ':(J.tier?esc(J.tier.name)+' member, ':'')+n(J.member.points_balance)+' points. ')+(desk?'<a href="#" id="toMember">Open customer</a>':'')+'</div>':'<div class="dim" style="font-size:.88rem">Not a rewards member'+(b.email?' yet.':'. Add an email to give them points.')+'</div>')+
+    (J.voucher&&['active','applied'].indexOf(J.voucher.status)>-1?'<div style="margin-top:.5rem"><span class="chip purple">Reward attached</span> '+esc(J.voucher.reward_name)+' ('+esc(J.voucher.code)+'). Add it as a discount line on the estimate.</div>':'')+
+    '</div>';
+  h+='<div class="steel panel sec"><h3>Schedule</h3><div class="grid g3">'+
+    '<div class="field"><label>Date</label><input type="date" name="sched_date" value="'+esc(b.sched_date||'')+'"'+dis(true)+'></div>'+
+    '<div class="field"><label>Time window</label><select name="sched_window"'+dis(true)+'><option value="">Choose</option>'+
+      (J.shop.time_windows||[]).concat(b.sched_window&&(J.shop.time_windows||[]).indexOf(b.sched_window)<0?[b.sched_window]:[]).map(function(w){ return '<option'+(w===b.sched_window?' selected':'')+'>'+esc(w)+'</option>'; }).join('')+'</select></div>'+
+    '<div class="field"><label>Technician</label><select name="tech_id"'+dis(true)+'><option value="">Unassigned</option>'+
+      (J.techs||[]).map(function(t){ return '<option value="'+t.id+'"'+(t.id===b.tech_id?' selected':'')+'>'+esc(t.name)+'</option>'; }).join('')+
+      (!desk&&b.tech_id?'<option selected>You</option>':'')+'</select></div></div>'+
+    (desk?'<label class="row" style="color:var(--text);font-family:var(--body)"><input type="checkbox" name="rush"'+(b.rush?' checked':'')+dis(true)+'> Rush / emergency</label>':'')+'</div>';
+  h+='<div class="steel panel sec"><h3>Vehicle</h3><div class="grid g2">'+
+    fld('Year, make, model','vehicle',b.vehicle,dis(true))+
+    '<div class="field"><label>VIN</label><div class="row" style="flex-wrap:nowrap"><input name="vin" value="'+esc(b.vin||'')+'" maxlength="17" style="text-transform:uppercase"'+dis()+'>'+(open?'<button type="button" class="btn ghost sm" id="vinDecode">Decode</button>':'')+'</div></div>'+
+    fld('Mileage','mileage',b.mileage,dis(),'text','numeric')+fld('Plate','plate',b.plate,dis())+'</div></div>';
+  h+='<div class="steel panel sec"><h3>Concern and findings</h3>'+
+    '<div class="field"><label>Customer concern</label><textarea name="concern" rows="2"'+dis(true)+'>'+esc(b.concern||'')+'</textarea></div>'+
+    '<div class="field"><label>Technician findings</label><textarea name="findings" rows="3" placeholder="What you tested, what you found, readings, codes"'+dis()+'>'+esc(b.findings||'')+'</textarea><div class="help">Customers see findings on their estimate approval page.</div></div>'+
+    (desk?'<div class="field"><label>Internal note (staff only)</label><input name="admin_note" value="'+esc(b.admin_note||'')+'"'+dis(true)+'></div>':'')+'</div>';
+  if(open) h+='<div class="row sec"><button class="btn">Save changes</button>'+(desk?'<button type="button" class="btn danger sm" id="cancelJob">Cancel job</button>':'')+'</div>';
+  h+='</form>';
+  if(details.length) h+='<div class="steel panel sec"><h3>From the website booking</h3><div class="kv">'+details.map(function(p){ return '<dt>'+esc(p.name)+'</dt><dd>'+esc(p.value)+'</dd>'; }).join('')+'</div></div>';
+  if(J.history&&J.history.length) h+='<div class="steel panel sec"><h3>Earlier jobs for this customer</h3><table>'+J.history.map(function(x){
+    return '<tr class="click" data-job="'+x.id+'"><td class="dim" style="white-space:nowrap">'+dayLabel((x.paid_at||x.created_at||'').slice(0,10))+'</td><td>'+esc(x.service||'')+'<div class="dim" style="font-size:.82rem">'+esc(x.vehicle||'')+(x.mileage?', '+n(x.mileage)+' mi':'')+'</div></td><td>'+stageChip(x)+'</td></tr>';
+  }).join('')+'</table></div>';
+  $('#dbody').innerHTML=h;
+  $$('#dbody tr[data-job]').forEach(function(tr){ tr.addEventListener('click', function(){ J.tab='job'; openJob(tr.dataset.job); }); });
+  if($('#toMember')) $('#toMember').addEventListener('click', function(e){ e.preventDefault(); openMember(J.member.id); });
+  if($('#vinDecode')) $('#vinDecode').addEventListener('click', function(){ decodeVin(fe($('#jobForm'),'vin'), fe($('#jobForm'),'vehicle')); });
+  if($('#cancelJob')) $('#cancelJob').addEventListener('click', function(){
+    var reason=prompt('Cancel this job? Add a reason (optional):',''); if(reason===null) return;
+    api('/admin/booking/'+b.id+'/cancel',{method:'POST',body:{reason:reason}}).then(function(){ toast('Job cancelled'); openJob(b.id); }).catch(function(e){ toast(e.message,true); });
+  });
+  $('#jobForm').addEventListener('submit', function(e){
+    e.preventDefault(); var f=e.target, body={};
+    ['customer_name','phone','email','address','vehicle','vin','mileage','plate','concern','findings','admin_note','sched_date','sched_window','tech_id'].forEach(function(k){
+      if(fe(f,k) && !fe(f,k).disabled && fe(f,k).value!==(J.booking[k]==null?'':String(J.booking[k]))) body[k]=fe(f,k).value;
+    });
+    if(fe(f,'rush') && !fe(f,'rush').disabled && fe(f,'rush').checked!==!!J.booking.rush) body.rush=fe(f,'rush').checked;
+    if(!Object.keys(body).length) return toast('Nothing changed');
+    patchJob(body,'Job saved');
+  });
+}
+function fld(label, name, val, dis, type, mode){ return '<div class="field"><label>'+label+'</label><input name="'+name+'" type="'+(type||'text')+'"'+(mode?' inputmode="'+mode+'"':'')+' value="'+esc(val==null?'':val)+'"'+(dis||'')+'></div>'; }
+function decodeVin(vinInput, vehInput){
+  var vin=(vinInput.value||'').toUpperCase().trim();
+  if(!/^[A-HJ-NPR-Z0-9]{17}$/.test(vin)) return toast('Enter the full 17-character VIN first', true);
+  toast('Decoding VIN…');
+  fetch('https://vpic.nhtsa.dot.gov/api/vehicles/DecodeVinValues/'+vin+'?format=json').then(function(r){ return r.json(); }).then(function(d){
+    var r=d.Results&&d.Results[0]; if(!r||!r.Make) throw new Error('VIN not recognized');
+    var tc=function(s){ return String(s||'').toLowerCase().replace(/\b\w/g,function(c){return c.toUpperCase();}); };
+    var eng=r.DisplacementL?(Math.round(parseFloat(r.DisplacementL)*10)/10)+'L':'';
+    var v=[r.ModelYear, tc(r.Make), r.Model, r.Trim, eng].filter(Boolean).join(' ');
+    if(vehInput && !vehInput.disabled) vehInput.value=v;
+    vinInput.value=vin; toast('Decoded: '+v);
+  }).catch(function(e){ toast('Could not decode: '+e.message, true); });
+}
+
+/* Estimate tab */
+function tabEstimate(){
+  var b=J.booking, open=b.status==='open', canEdit=open&&(DESK()||J.shop.tech_can_estimate);
+  var est=b.estimate||{lines:[],notes:''};
+  J.lines=JSON.parse(JSON.stringify(est.lines||[]));
+  var h='';
+  if(!canEdit && !J.lines.length){ $('#dbody').innerHTML='<div class="steel empty">No estimate on this job'+(open?'. The service desk builds estimates.':'.')+'</div>'; return; }
+  h+='<div class="steel panel sec"><div class="row" style="justify-content:space-between"><h3 style="margin:0">Lines</h3>'+
+     (canEdit?'<div class="row" style="gap:.3rem"><button class="btn ghost sm" data-add="labor">+ Labor</button><button class="btn ghost sm" data-add="part">+ Part</button><button class="btn ghost sm" data-add="fee">+ Fee</button><button class="btn ghost sm" data-add="discount">+ Discount</button></div>':'')+
+     '</div><div class="scroll"><table class="est" style="margin-top:.6rem"><tbody id="estRows"></tbody></table></div>'+
+     (canEdit?'<div class="help">Labor: quantity is hours. Parts: enter your cost and press % to apply your '+(J.shop.parts_markup_pct||0)+'% markup, or type the price. Lines start as "Waiting"; the customer approves them online, or you can set them yourself after a phone OK.</div>':'')+
+     '</div>';
+  h+='<div class="totals sec" id="estTotals"></div>';
+  h+='<div class="steel panel sec"><div class="field"><label>Note to customer (shows on their estimate)</label><textarea id="estNotes" rows="2"'+(canEdit?'':' disabled')+'>'+esc(est.notes||'')+'</textarea></div>'+
+     (canEdit?'<div class="row"><button class="btn" id="estSave">Save estimate</button><button class="btn purple" id="estText"'+(b.phone?'':' disabled title="No phone number on this job"')+'>Save and text to customer</button><button class="btn ghost sm" id="estLink">Get link</button></div>':'')+
+     '<div id="estLinkOut" class="help" style="margin-top:.6rem">'+(J.estimate_link?'Customer link: <a href="'+esc(J.estimate_link)+'" target="_blank" rel="noopener">'+esc(J.estimate_link)+'</a>'+(est.sent_at?' (sent '+when(est.sent_at)+')':''):'')+'</div></div>';
+  var auths=est.authorizations||[];
+  if(auths.length) h+='<div class="steel panel sec"><h3>Customer authorizations</h3>'+auths.slice().reverse().map(function(a){
+    return '<div class="ev"><div class="k">'+when(a.at)+'</div><div><b>'+esc(a.name)+'</b> approved '+esc((a.approved||[]).join(', ')||'nothing')+(a.declined&&a.declined.length?'; declined '+esc(a.declined.join(', ')):'')+'. Total '+usd(a.approved_total_cents)+'<div class="dim" style="font-size:.78rem">IP '+esc(a.ip||'')+'</div></div></div>';
+  }).join('')+'</div>';
+  $('#dbody').innerHTML=h;
+  paintLines(canEdit);
+  if(canEdit){
+    $$('[data-add]').forEach(function(btn){ btn.addEventListener('click', function(){
+      var t=btn.dataset.add, l={id:'',type:t,desc:'',qty:1,unit_cents:0,status:'pending'};
+      if(t==='labor'){ l.unit_cents=J.shop.labor_rate_cents||0; }
+      if(t==='discount'&&J.voucher&&['active','applied'].indexOf(J.voucher.status)>-1){ l.desc='Reward '+J.voucher.code+': '+J.voucher.reward_name; l.unit_cents=J.voucher.value_cents; l.status='approved'; }
+      if(t==='discount') l.status='approved';
+      J.lines.push(l); paintLines(true);
+      var rows=$$('#estRows input[data-f="desc"]'); if(rows.length) rows[rows.length-1].focus();
+    }); });
+    $('#estSave').addEventListener('click', function(){ saveEstimate().then(function(){ toast('Estimate saved'); openJob(b.id,'estimate'); }).catch(function(e){ toast(e.message,true); }); });
+    $('#estText').addEventListener('click', function(){
+      var btn=this; busy(btn,true,'Sending…');
+      saveEstimate().then(function(){ return api('/admin/booking/'+b.id+'/estimate/send',{method:'POST',body:{via:'sms'}}); })
+        .then(function(){ toast('Estimate texted to '+(b.customer_name||'customer')); openJob(b.id,'estimate'); })
+        .catch(function(e){ toast(e.message,true); busy(btn,false); });
+    });
+    $('#estLink').addEventListener('click', function(){
+      saveEstimate().then(function(){ return api('/admin/booking/'+b.id+'/estimate/send',{method:'POST',body:{via:'link'}}); })
+        .then(function(r){ $('#estLinkOut').innerHTML='Customer link: <a href="'+esc(r.link)+'" target="_blank" rel="noopener">'+esc(r.link)+'</a>';
+          if(navigator.clipboard) navigator.clipboard.writeText(r.link).then(function(){ toast('Link copied'); }).catch(function(){}); })
+        .catch(function(e){ toast(e.message,true); });
+    });
+  }
+}
+function paintLines(canEdit){
+  var dis=canEdit?'':' disabled';
+  var tl={labor:'Labor',part:'Part',fee:'Fee',discount:'Discount'};
+  $('#estRows').innerHTML = J.lines.length ? '<tr><th style="width:92px">Type</th><th>Description</th><th style="width:72px">Qty / hrs</th><th style="width:100px">Price each</th><th style="width:96px">Amount</th><th style="width:120px">Status</th><th style="width:34px"></th></tr>'+
+    J.lines.map(function(l,i){
+      var amt=Math.round((Number(l.qty)||0)*(Number(l.unit_cents)||0));
+      return '<tr><td><select data-i="'+i+'" data-f="type"'+dis+'>'+['labor','part','fee','discount'].map(function(t){ return '<option value="'+t+'"'+(t===l.type?' selected':'')+'>'+tl[t]+'</option>'; }).join('')+'</select></td>'+
+        '<td><input data-i="'+i+'" data-f="desc" value="'+esc(l.desc)+'" placeholder="'+(l.type==='part'?'Part name':'Description')+'"'+dis+'>'+
+          (l.type==='part'?'<div class="row" style="gap:.3rem;margin-top:.3rem;flex-wrap:nowrap"><input data-i="'+i+'" data-f="part_no" value="'+esc(l.part_no||'')+'" placeholder="Part #" style="max-width:120px"'+dis+'><input data-i="'+i+'" data-f="cost" value="'+dollars(l.cost_cents)+'" placeholder="Cost $" inputmode="decimal" style="max-width:90px"'+dis+'>'+(canEdit?'<button type="button" class="btn ghost sm" data-markup="'+i+'" title="Apply markup">%</button>':'')+'</div>':'')+'</td>'+
+        '<td><input data-i="'+i+'" data-f="qty" value="'+esc(l.qty)+'" inputmode="decimal"'+dis+'></td>'+
+        '<td><input data-i="'+i+'" data-f="unit" value="'+dollars(l.unit_cents)+'" inputmode="decimal" placeholder="0.00"'+dis+'></td>'+
+        '<td class="amt">'+(l.type==='discount'?'−':'')+usd(amt)+'</td>'+
+        '<td>'+(l.type==='discount'?'<span class="chip good">Applied</span>':'<select data-i="'+i+'" data-f="status"'+dis+'>'+[['pending','Waiting'],['approved','Approved'],['declined','Declined']].map(function(s){ return '<option value="'+s[0]+'"'+(s[0]===(l.status||'pending')?' selected':'')+'>'+s[1]+'</option>'; }).join('')+'</select>')+'</td>'+
+        '<td>'+(canEdit?'<button type="button" class="btn danger sm" data-del="'+i+'" aria-label="Remove line">×</button>':'')+'</td></tr>';
+    }).join('') : '<tr><td class="dim" style="padding:1rem 0">No lines yet. Add labor, parts, or fees.</td></tr>';
+  $$('#estRows [data-f]').forEach(function(inp){ inp.addEventListener('change', function(){
+    var l=J.lines[+inp.dataset.i], f=inp.dataset.f;
+    if(f==='type'){ l.type=inp.value; if(l.type==='discount') l.status='approved'; paintLines(canEdit); return; }
+    if(f==='desc') l.desc=inp.value;
+    if(f==='part_no') l.part_no=inp.value;
+    if(f==='qty') l.qty=parseFloat(inp.value)||0;
+    if(f==='unit') l.unit_cents=cents(inp.value);
+    if(f==='cost') l.cost_cents=inp.value===''?null:cents(inp.value);
+    if(f==='status') l.status=inp.value;
+    if(f!=='desc'&&f!=='part_no') paintLines(canEdit); else paintTotals();
+  }); });
+  $$('#estRows [data-del]').forEach(function(btn){ btn.addEventListener('click', function(){ J.lines.splice(+btn.dataset.del,1); paintLines(canEdit); }); });
+  $$('#estRows [data-markup]').forEach(function(btn){ btn.addEventListener('click', function(){
+    var l=J.lines[+btn.dataset.markup]; if(!l.cost_cents) return toast('Enter the part cost first', true);
+    l.unit_cents=Math.round(l.cost_cents*(1+(Number(J.shop.parts_markup_pct)||0)/100)); paintLines(canEdit);
+  }); });
+  paintTotals();
+}
+function calcTotals(lines, keep){
+  var t={labor:0,parts:0,fees:0,discount:0};
+  lines.forEach(function(l){ if(!keep(l)) return; var a=Math.round((Number(l.qty)||0)*(Number(l.unit_cents)||0));
+    if(l.type==='labor') t.labor+=a; else if(l.type==='part') t.parts+=a; else if(l.type==='fee') t.fees+=a; else t.discount+=a; });
+  t.tax=Math.round(t.parts*(Number(J.shop.parts_tax_rate)||0)/100); t.total=Math.max(0,t.labor+t.parts+t.fees-t.discount)+t.tax;
+  var cost=0, hasCost=false; lines.forEach(function(l){ if(keep(l)&&l.type==='part'&&l.cost_cents!=null){ cost+=Math.round((Number(l.qty)||0)*l.cost_cents); hasCost=true; } });
+  t.partsProfit=hasCost?t.parts-cost:null; return t;
+}
+function paintTotals(){
+  var q=calcTotals(J.lines,function(l){ return l.status!=='declined'; }), a=calcTotals(J.lines,function(l){ return l.type==='discount'||l.status==='approved'; });
+  var tbl=function(t,title){ return '<div class="steel panel"><h3>'+title+'</h3><table><tr><td>Labor</td><td style="text-align:right">'+usd(t.labor)+'</td></tr><tr><td>Parts</td><td style="text-align:right">'+usd(t.parts)+'</td></tr>'+
+    (t.fees?'<tr><td>Fees</td><td style="text-align:right">'+usd(t.fees)+'</td></tr>':'')+(t.discount?'<tr><td>Discounts</td><td style="text-align:right">−'+usd(t.discount)+'</td></tr>':'')+
+    '<tr><td>Tax on parts ('+(J.shop.parts_tax_rate||0)+'%)</td><td style="text-align:right">'+usd(t.tax)+'</td></tr><tr class="big"><td>Total</td><td style="text-align:right">'+usd(t.total)+'</td></tr>'+
+    (DESK()&&t.partsProfit!=null?'<tr><td class="dim" style="font-size:.82rem">Parts profit (staff only)</td><td class="dim" style="text-align:right;font-size:.82rem">'+usd(t.partsProfit)+'</td></tr>':'')+'</table></div>'; };
+  $('#estTotals').innerHTML=tbl(q,'Quoted (not declined)')+tbl(a,'Approved so far');
+}
+function saveEstimate(){
+  var bad=J.lines.filter(function(l){ return !String(l.desc||'').trim(); });
+  if(bad.length) return Promise.reject(new Error('Every line needs a description.'));
+  return api('/admin/booking/'+J.booking.id+'/estimate',{method:'PUT',body:{lines:J.lines,notes:$('#estNotes').value}});
+}
+
+/* Texts tab */
+var TEMPLATES=[['confirm','Confirm appointment'],['on_way','On my way'],['estimate','Estimate ready'],['complete','Job done + payment link'],['review','Ask for a review'],['follow_up','Recommended work follow-up']];
+function tabTexts(){
+  var b=J.booking, v=J.sms_vars, tpls=J.shop.sms_templates||{};
+  var sent=(J.events||[]).filter(function(e){ return e.kind==='sms'; });
+  var h='';
+  if(!J.sms_ready) h+='<div class="steel panel sec" style="border-color:var(--warn)">Texting isn\'t connected yet. Add <b>TEXTBELT_KEY</b> on Render to send texts from here. Until then, use <a href="'+smsHref(b.phone)+'">your phone</a>.</div>';
+  if(!b.phone) h+='<div class="steel panel sec" style="border-color:var(--warn)">No phone number on this job. Add one on the Job tab.</div>';
+  h+='<div class="steel panel sec"><h3>Send a text to '+esc(b.customer_name||'customer')+(b.phone?' <span class="dim">('+esc(b.phone)+')</span>':'')+'</h3>'+
+    '<div class="row" style="gap:.35rem;margin-bottom:.7rem">'+TEMPLATES.map(function(t){ return '<button type="button" class="btn ghost sm" data-tpl="'+t[0]+'">'+t[1]+'</button>'; }).join('')+'</div>'+
+    '<div id="etaRow" class="field hide"><label>Arrival time to tell them</label><input id="eta" placeholder="e.g. 20 minutes, or 10:45 AM"></div>'+
+    '<textarea id="smsText" rows="4" placeholder="Pick a template or write your own message"></textarea>'+
+    '<div class="row" style="justify-content:space-between;margin-top:.5rem"><span class="help" id="smsCount"></span><button class="btn" id="smsSend"'+(b.phone&&J.sms_ready?'':' disabled')+'>Send text</button></div></div>';
+  h+='<div class="steel panel"><h3>Texts sent</h3>'+(sent.length?sent.map(function(e){ return '<div class="ev"><div class="k">'+when(e.at)+'<br>'+esc(e.by_name||'')+'</div><div>'+esc(e.text)+'</div></div>'; }).join(''):'<div class="dim">No texts sent from the portal yet.</div>')+'</div>';
+  $('#dbody').innerHTML=h;
+  var kind=null;
+  function setTpl(k){
+    kind=k; $('#etaRow').classList.toggle('hide', k!=='on_way');
+    var vars=Object.assign({}, v, {eta: $('#eta').value || '[arrival time]'});
+    if(k==='estimate' && !J.estimate_link){ vars.estimate_link='[link is created when you send]'; }
+    if(k==='complete' && !J.shop.payment_link) toast('Add your payment portal link in Settings so it appears in this text', true);
+    $('#smsText').value=fill(tpls[k], vars); count();
+  }
+  function count(){ var l=$('#smsText').value.length; $('#smsCount').textContent=l+' characters'+(l>160?' (sends as '+Math.ceil(l/153)+' texts)':''); }
+  $$('[data-tpl]').forEach(function(btn){ btn.addEventListener('click', function(){ setTpl(btn.dataset.tpl); }); });
+  $('#eta').addEventListener('input', function(){ if(kind==='on_way') setTpl('on_way'); });
+  $('#smsText').addEventListener('input', count);
+  if(J.preset){ setTpl(J.preset); J.preset=null; if(kind==='on_way') $('#eta').focus(); }
+  $('#smsSend').addEventListener('click', function(){
+    var text=$('#smsText').value.trim(), btn=this;
+    if(!text) return toast('Write a message first', true);
+    if(/\[arrival time\]|\[link is created/.test(text)) return toast(kind==='on_way'?'Enter the arrival time first':'Send estimates from the Estimate tab', true);
+    if(kind==='estimate'){ busy(btn,true,'Sending…'); api('/admin/booking/'+b.id+'/estimate/send',{method:'POST',body:{via:'sms',text:J.estimate_link?text:null}}).then(function(){ toast('Estimate texted'); openJob(b.id,'texts'); }).catch(function(e){ toast(e.message,true); busy(btn,false); }); return; }
+    busy(btn,true,'Sending…');
+    api('/admin/booking/'+b.id+'/sms',{method:'POST',body:{text:text,kind:kind}}).then(function(){ toast('Text sent'); openJob(b.id,'texts'); }).catch(function(e){ toast(e.message,true); busy(btn,false); });
+  });
+}
+
+/* Payment tab */
+function tabPayment(){
+  var b=J.booking, v=J.voucher, h='';
+  if(b.status==='open'){
+    var a=J.totals.approved, q=J.totals.quoted, useA=a.pay_labor+a.pay_parts>0;
+    var lab=useA?a.pay_labor:q.pay_labor, par=useA?a.pay_parts:q.pay_parts;
+    var vnote=v?(['active','applied'].indexOf(v.status)>-1?'<b>'+esc(v.reward_name)+'</b> ('+usd(v.value_cents)+'). Make sure it\'s on the estimate as a discount.':'Voucher '+esc(v.code)+' is '+esc(v.status)+' and can\'t be used.'):'';
+    h+='<form id="payForm" class="steel panel sec" style="border-color:var(--gold-lo)"><h3>Mark as paid</h3>'+
+      (lab+par>0?'<div class="help" style="margin:-.4rem 0 .8rem">Filled in from the '+(useA?'approved':'quoted')+' estimate. Change it if the final charge was different.</div>':'')+
+      '<div class="grid g2"><div class="field"><label>Labor and fees charged ($)</label><input name="labor" type="number" step="0.01" min="0" inputmode="decimal" value="'+dollars(lab)+'"></div>'+
+      '<div class="field"><label>Parts charged ($)</label><input name="parts" type="number" step="0.01" min="0" inputmode="decimal" value="'+dollars(par)+'"></div></div>'+
+      '<div class="help" style="margin:-.5rem 0 .9rem">Before tax, after any discount. Points: '+J.rates.labor+' per $1 labor, '+J.rates.parts+' per $1 parts, times their tier. Book-ahead and slow-day bonuses are added automatically.</div>'+
+      '<div class="grid g2"><div class="field"><label>Paid by</label><select name="method">'+J.payment_methods.map(function(o){return '<option>'+esc(o)+'</option>';}).join('')+'</select></div>'+
+      '<div class="field"><label>Receipt or transaction #</label><input name="reference" placeholder="From your card portal"></div></div>'+
+      '<div class="field"><label>Reward voucher used</label><input name="voucher_code" value="'+esc(b.voucher_code||'')+'" placeholder="UER-XXXXXX (leave blank if none)" style="text-transform:uppercase">'+(vnote?'<div class="help">'+vnote+'</div>':'')+'</div>'+
+      '<div class="row"><button class="btn">Mark paid</button><span id="payPts" class="dim"></span></div><div id="payErr" class="err-text"></div></form>'+
+      '<div class="steel panel"><h3>Collecting payment</h3><p class="dim" style="margin:0 0 .6rem">Text the customer the total and your payment link, then mark it paid here once the charge goes through.</p><button class="btn ghost sm" id="toComplete">Text "Job done + payment link"</button></div>';
+  } else if(b.status==='paid'){
+    h+='<div class="steel panel sec"><h3>Paid '+usd(b.total_cents)+'</h3><div>Labor and fees '+usd(b.labor_cents)+', parts '+usd(b.parts_cents)+'</div>'+
+      '<div class="dim">'+esc(b.payment_method||'')+(b.payment_ref?', #'+esc(b.payment_ref):'')+', '+when(b.paid_at)+'</div>'+
+      (b.voucher_used?'<div class="dim">Voucher '+esc(b.voucher_used)+' used</div>':'')+
+      '<div style="margin-top:.4rem">'+(b.points_awarded!=null?'<span class="plus pts">+'+n(b.points_awarded)+' points</span> awarded':'No points awarded')+'</div></div>'+
+      (OWN()?'<button class="btn danger sm" id="bReopen">Undo payment</button><div class="help">Takes the points back and reopens the job.</div>':'<div class="help">Only the owner can undo a payment.</div>');
+  } else {
+    h+='<div class="steel panel">This job was cancelled. <button class="btn ghost sm" id="bRestore">Restore job</button></div>';
+  }
+  $('#dbody').innerHTML=h;
+  var f=$('#payForm');
+  if(f){
+    var mult=(J.member&&J.member.is_fleet)?0:(J.tier?Number(J.tier.multiplier)||1:1);
+    var pv=function(){ var l=parseFloat(fe(f,'labor').value)||0, p=parseFloat(fe(f,'parts').value)||0;
+      $('#payPts').textContent=(l+p)>0?'Total '+usd(cents(l+p))+(b.email||J.member?', about '+n(Math.floor((l*J.rates.labor+p*J.rates.parts)*mult))+' points':''):''; };
+    fe(f,'labor').addEventListener('input',pv); fe(f,'parts').addEventListener('input',pv); pv();
+    $('#toComplete').addEventListener('click', function(){ J.tab='texts'; J.preset='complete'; renderJob(); });
+    f.addEventListener('submit', function(e){
+      e.preventDefault(); $('#payErr').textContent='';
+      var l=parseFloat(fe(f,'labor').value)||0, p=parseFloat(fe(f,'parts').value)||0;
+      if(!(l+p>0)){ $('#payErr').textContent='Enter labor and/or parts.'; return; }
+      if(!confirm('Mark paid: '+usd(cents(l+p))+' by '+fe(f,'method').value+'?')) return;
+      var btn=f.querySelector('button'); busy(btn,true,'Saving…');
+      api('/admin/booking/'+b.id+'/paid',{method:'POST',body:{labor:l,parts:p,method:fe(f,'method').value,reference:fe(f,'reference').value.trim(),voucher_code:fe(f,'voucher_code').value.trim()}})
+        .then(function(r){ toast(r.no_member?'Marked paid. No email, so no points.':r.fleet?'Marked paid. Fleet account, no points.':'Marked paid, '+n(r.points)+' points awarded'); openJob(b.id,'payment'); })
+        .catch(function(err){ $('#payErr').textContent=err.message; busy(btn,false); });
+    });
+  }
+  if($('#bReopen')) $('#bReopen').addEventListener('click', function(){
+    if(!confirm('Undo this payment?'+(b.points_awarded?' '+n(b.points_awarded)+' points will be taken back.':''))) return;
+    api('/admin/booking/'+b.id+'/reopen',{method:'POST'}).then(function(){ toast('Payment undone'); openJob(b.id,'payment'); }).catch(function(e){ toast(e.message,true); });
+  });
+  if($('#bRestore')) $('#bRestore').addEventListener('click', function(){
+    api('/admin/booking/'+b.id+'/restore',{method:'POST'}).then(function(){ toast('Job restored'); openJob(b.id); }).catch(function(e){ toast(e.message,true); });
+  });
+}
+
+/* History tab */
+function tabHistory(){
+  var ev=J.events||[];
+  var h='<div class="steel panel sec"><h3>Add a note</h3><textarea id="noteText" rows="2" placeholder="Parts ordered from O\'Reilly, ETA Thursday. Customer prefers texts after 5 PM."></textarea><div class="row" style="margin-top:.5rem"><button class="btn sm" id="noteAdd">Add note</button></div></div>'+
+    '<div class="steel panel">'+(ev.length?ev.map(function(e){
+      var k={note:'Note',status:'Status',sms:'Text sent',estimate:'Estimate',payment:'Payment',edit:'Edit'}[e.kind]||e.kind;
+      return '<div class="ev"><div class="k">'+when(e.at)+'<br>'+esc(e.by_name||'')+'</div><div><span class="chip">'+esc(k)+'</span> '+esc(e.text)+'</div></div>';
+    }).join(''):'<div class="dim">No history yet.</div>')+'</div>';
+  $('#dbody').innerHTML=h;
+  $('#noteAdd').addEventListener('click', function(){
+    var t=$('#noteText').value.trim(); if(!t) return;
+    api('/admin/booking/'+J.booking.id+'/note',{method:'POST',body:{text:t}}).then(function(){ toast('Note added'); openJob(J.booking.id,'history'); }).catch(function(e){ toast(e.message,true); });
+  });
+}
+
+/* ───────── NEW JOB ───────── */
+VIEWS['new'] = function(){
+  var p=S.prefill||{}; S.prefill=null;
+  Promise.all([api('/admin/techs'), api('/admin/meta')]).then(function(r){
+    var techs=r[0].techs, windows=r[1].time_windows||[], methods=r[1].payment_methods||[];
+    var h='<h2>New job</h2><p class="dim" style="margin:-.6rem 0 1rem;max-width:640px">For phone calls, texts, and repeat customers. Website bookings show up in Jobs on their own.</p>'+
+    '<form id="nj" style="max-width:820px">'+
+    '<div class="steel panel sec"><h3>Customer</h3>'+
+      '<div class="field"><label>Find an existing customer</label><input id="njFind" placeholder="Search name, email, or phone" autocomplete="off"><div id="njRes"></div><div id="njPicked" class="help"></div></div>'+
+      '<div class="grid g2">'+fld('Name','customer_name',p.customer_name)+fld('Phone','phone',p.phone,'','tel')+fld('Email (for rewards points)','email',p.email,'','email')+fld('Service address','address',p.address)+'</div></div>'+
+    '<div class="steel panel sec"><h3>Vehicle</h3><div class="grid g2">'+fld('Year, make, model','vehicle',p.vehicle)+
+      '<div class="field"><label>VIN</label><div class="row" style="flex-wrap:nowrap"><input name="vin" maxlength="17" style="text-transform:uppercase" value="'+esc(p.vin||'')+'"><button type="button" class="btn ghost sm" id="njVin">Decode</button></div></div>'+
+      fld('Mileage','mileage','','','text','numeric')+fld('Plate','plate','')+'</div></div>'+
+    '<div class="steel panel sec"><h3>Work</h3>'+fld('Service','service',p.service)+
+      '<div class="field"><label>Customer concern</label><textarea name="concern" rows="3" placeholder="What the customer described, when it happens, warning lights">'+esc(p.concern||'')+'</textarea></div></div>'+
+    '<div class="steel panel sec"><h3>Schedule</h3><div class="grid g3">'+
+      '<div class="field"><label>Date</label><input type="date" name="sched_date"></div>'+
+      '<div class="field"><label>Time window</label><select name="sched_window"><option value="">Choose</option>'+windows.map(function(w){return '<option>'+esc(w)+'</option>';}).join('')+'</select></div>'+
+      '<div class="field"><label>Technician</label><select name="tech_id"><option value="">Unassigned</option>'+techs.map(function(t){return '<option value="'+t.id+'">'+esc(t.name)+'</option>';}).join('')+'</select></div></div>'+
+      '<label class="row" style="color:var(--text);font-family:var(--body)"><input type="checkbox" name="rush"> Rush / emergency</label></div>'+
+    '<div class="steel panel sec"><label class="row" style="color:var(--text);font-family:var(--head);font-size:1rem"><input type="checkbox" id="njPaid"> This job is already done and paid</label>'+
+      '<div id="njPayBox" class="hide" style="margin-top:.8rem"><div class="grid g2">'+
+      '<div class="field"><label>Labor and fees charged ($)</label><input name="p_labor" type="number" step="0.01" min="0"></div><div class="field"><label>Parts charged ($)</label><input name="p_parts" type="number" step="0.01" min="0"></div>'+
+      '<div class="field"><label>Paid by</label><select name="p_method">'+methods.map(function(o){return '<option>'+esc(o)+'</option>';}).join('')+'</select></div><div class="field"><label>Receipt or transaction #</label><input name="p_ref"></div></div>'+
+      '<div class="field"><label>Reward voucher used</label><input name="p_voucher" placeholder="UER-XXXXXX (optional)" style="text-transform:uppercase"></div></div></div>'+
+    '<div class="row"><button class="btn">Create job</button><span id="njErr" class="err-text"></span></div></form>';
+    $('#view').innerHTML=h;
+    var f=$('#nj'), picked=p.member_id?{id:p.member_id}:null, t;
+    if(picked) $('#njPicked').textContent='Linked to existing customer.';
+    $('#njPaid').addEventListener('change', function(){ $('#njPayBox').classList.toggle('hide', !this.checked); });
+    $('#njVin').addEventListener('click', function(){ decodeVin(fe(f,'vin'), fe(f,'vehicle')); });
+    $('#njFind').addEventListener('keydown', function(e){ if(e.key==='Enter') e.preventDefault(); });
+    $('#njFind').addEventListener('input', function(){
+      clearTimeout(t); var q=this.value.trim(); if(q.length<2){ $('#njRes').innerHTML=''; return; }
+      t=setTimeout(function(){ api('/admin/members?q='+encodeURIComponent(q)).then(function(d){
+        $('#njRes').innerHTML=d.members.slice(0,6).map(function(m,i){ return '<button type="button" class="btn ghost sm" data-pi="'+i+'" style="display:block;width:100%;text-align:left;margin-top:.3rem">'+esc(m.name||'—')+' <span class="dim">'+esc(m.email||'')+' '+esc(m.phone||'')+'</span></button>'; }).join('')||'<div class="help">No match. Fill in the fields below.</div>';
+        $$('#njRes [data-pi]').forEach(function(b){ b.addEventListener('click', function(){
+          var m=d.members[+b.dataset.pi]; picked=m; $('#njRes').innerHTML=''; $('#njFind').value='';
+          fe(f,'customer_name').value=m.name||''; fe(f,'email').value=m.email||''; fe(f,'phone').value=m.phone||'';
+          $('#njPicked').textContent='Linked to '+(m.name||m.email)+'. Their earlier jobs and vehicles show on the job.';
+        }); });
+      }); }, 250);
+    });
+    f.addEventListener('submit', function(e){
+      e.preventDefault(); $('#njErr').textContent='';
+      var body={member_id:picked?picked.id:null,customer_name:fe(f,'customer_name').value,phone:fe(f,'phone').value,email:fe(f,'email').value,address:fe(f,'address').value,
+        vehicle:fe(f,'vehicle').value,vin:fe(f,'vin').value,mileage:fe(f,'mileage').value,plate:fe(f,'plate').value,service:fe(f,'service').value,concern:fe(f,'concern').value,
+        sched_date:fe(f,'sched_date').value,sched_window:fe(f,'sched_window').value,tech_id:fe(f,'tech_id').value,rush:fe(f,'rush').checked};
+      if($('#njPaid').checked) body.paid={labor:fe(f,'p_labor').value,parts:fe(f,'p_parts').value,method:fe(f,'p_method').value,reference:fe(f,'p_ref').value,voucher_code:fe(f,'p_voucher').value};
+      var btn=f.querySelector('button.btn:not(.ghost)'); busy(btn,true,'Creating…');
+      api('/admin/jobs',{method:'POST',body:body}).then(function(r){
+        toast(r.award?'Job created and marked paid, '+n(r.award.points)+' points':'Job created'); go('jobs'); openJob(r.booking_id);
+      }).catch(function(err){ $('#njErr').textContent=err.message; busy(btn,false); });
+    });
+  }).catch(fail);
+};
+
+/* ───────── FOLLOW-UPS ───────── */
+VIEWS.followups = function(){
+  api('/admin/followups').then(function(d){
+    var due=d.followups.filter(function(f){ return f.due; }), later=d.followups.filter(function(f){ return !f.due; });
+    var row=function(f){
+      return '<div class="steel panel" style="margin-bottom:.6rem"><div class="row" style="justify-content:space-between;align-items:flex-start">'+
+        '<div><div style="font-family:var(--head);font-size:1.05rem">'+esc(f.customer_name||f.email||'Customer')+' <span class="dim" style="font-family:var(--body);font-size:.88rem">'+esc(f.vehicle||'')+'</span></div>'+
+        '<div>'+f.declined.map(function(x){ return esc(x.desc)+' <span class="dim">'+usd(x.amount_cents)+'</span>'; }).join(', ')+'</div>'+
+        '<div class="dim" style="font-size:.85rem">Declined on '+esc(f.order_name||'a job')+', '+dayLabel((f.paid_at||'').slice(0,10))+(f.follow_up_date?'. Follow up '+dayLabel(f.follow_up_date):'')+'</div></div>'+
+        '<div style="font-family:var(--display);font-size:1.6rem;color:var(--gold-hi)">'+usd(f.value_cents)+'</div></div>'+
+        '<div class="row" style="margin-top:.6rem;gap:.35rem">'+(f.phone?'<a class="btn ghost sm" href="'+telHref(f.phone)+'">Call</a><button class="btn ghost sm" data-ftext="'+f.id+'">Text</button>':'')+
+        '<button class="btn sm" data-fbook="'+f.id+'">Book it</button><button class="btn ghost sm" data-fsnooze="'+f.id+'">Remind me in 30 days</button><button class="btn danger sm" data-fclose="'+f.id+'">Close</button></div></div>';
+    };
+    $('#view').innerHTML='<h2>Follow-ups</h2><p class="dim" style="margin:-.6rem 0 1rem;max-width:660px">Work customers declined. A follow-up call or text is the cheapest job you\'ll ever book.</p>'+
+      (due.length?'<h3>Due now ('+due.length+')</h3>'+due.map(row).join(''):'<div class="steel empty">Nothing due right now.</div>')+
+      (later.length?'<h3 style="margin-top:1.4rem">Coming up</h3>'+later.map(row).join(''):'');
+    var byId={}; d.followups.forEach(function(f){ byId[f.id]=f; });
+    $$('[data-ftext]').forEach(function(b){ b.addEventListener('click', function(){ openJob(b.dataset.ftext,'texts','follow_up'); }); });
+    $$('[data-fbook]').forEach(function(b){ b.addEventListener('click', function(){
+      var f=byId[b.dataset.fbook];
+      S.prefill={customer_name:f.customer_name,phone:f.phone,email:f.email,vehicle:f.vehicle,service:f.declined.map(function(x){return x.desc;}).join(', '),concern:'Recommended on '+(f.order_name||'previous visit')+': '+f.declined.map(function(x){return x.desc;}).join(', ')};
+      api('/admin/booking/'+f.id+'/followup',{method:'POST',body:{note:'Booked as a new job'}}).catch(function(){});
+      go('new');
+    }); });
+    $$('[data-fsnooze]').forEach(function(b){ b.addEventListener('click', function(){ api('/admin/booking/'+b.dataset.fsnooze+'/followup',{method:'POST',body:{snooze_days:30}}).then(function(){ toast('Moved 30 days out'); rerender(); }).catch(function(e){ toast(e.message,true); }); }); });
+    $$('[data-fclose]').forEach(function(b){ b.addEventListener('click', function(){ var note=prompt('Close this follow-up? Reason (optional):',''); if(note===null) return; api('/admin/booking/'+b.dataset.fclose+'/followup',{method:'POST',body:{note:note}}).then(function(){ toast('Follow-up closed'); rerender(); }).catch(function(e){ toast(e.message,true); }); }); });
+  }).catch(fail);
+};
+
+/* ───────── CUSTOMERS ───────── */
+VIEWS.customers = function(){
+  $('#view').innerHTML='<h2>Customers</h2><div class="row" style="margin-bottom:1rem"><input id="mq" placeholder="Search name, email, phone, or referral code" style="flex:1;min-width:220px"><select id="msort" style="width:auto"><option value="recent">Recently active</option><option value="points">Most points</option></select></div><div id="mlist" class="steel"></div>'+
+    '<p class="help">Customers appear here once they have an email on a job or sign in to Rewards.</p>';
+  var t; $('#mq').addEventListener('input', function(){ clearTimeout(t); t=setTimeout(loadMembers,250); });
+  $('#msort').addEventListener('change', loadMembers); loadMembers();
+};
+function loadMembers(){
+  if(!$('#mlist')) return;
+  api('/admin/members?q='+encodeURIComponent($('#mq').value)+'&sort='+$('#msort').value).then(function(d){
+    $('#mlist').innerHTML=d.members.length?'<div class="scroll"><table><tr><th>Name</th><th>Contact</th><th>Points</th><th>Last active</th></tr>'+d.members.map(function(m){
+      return '<tr class="click" data-mid="'+m.id+'"><td>'+esc(m.name||'—')+(m.is_fleet?' <span class="chip">Fleet</span>':'')+'</td><td>'+esc(m.email||'')+'<div class="dim" style="font-size:.82rem">'+esc(m.phone||'')+'</div></td><td class="pts">'+n(m.points_balance)+'</td><td class="dim">'+when(m.last_activity_at)+'</td></tr>';
+    }).join('')+'</table></div>':'<div class="empty">No customers match.</div>';
+    $$('#mlist tr[data-mid]').forEach(function(tr){ tr.addEventListener('click', function(){ openMember(tr.dataset.mid); }); });
+  }).catch(function(e){ $('#mlist').innerHTML='<div class="empty">'+esc(e.message)+'</div>'; });
+}
+function openMember(id){
+  J=null; var d=$('#drawer'), sh=$('#sheet'); d.classList.remove('hide'); sh.innerHTML='<div class="empty">Loading…</div>';
+  api('/admin/member/'+id).then(function(x){
+    var m=x.member, t=x.tier, nx=x.next_tier;
+    var pct=nx?Math.min(100,Math.round((x.spend_12mo_cents-t.min_spend_cents)/Math.max(1,nx.min_spend_cents-t.min_spend_cents)*100)):100;
+    var veh={}; (x.jobs||[]).forEach(function(j){ var k=(j.vin||j.vehicle||'').toUpperCase(); if(k&&!veh[k]) veh[k]=j; });
+    var h='<div class="row" style="justify-content:space-between"><h2 style="margin:0">'+esc(m.name||m.email||'Customer')+'</h2><button class="btn ghost sm" id="closeDrawer">Close</button></div>'+
+      '<div class="dim">'+esc(m.email||'')+(m.phone?' &nbsp; <a href="'+telHref(m.phone)+'">'+esc(m.phone)+'</a>':'')+'</div>'+
+      '<div class="row" style="margin:.8rem 0"><button class="btn purple sm" id="newForMember">New job for this customer</button></div>'+
+      (m.is_fleet?'<div class="steel panel sec">Fleet account. Earns no points.</div>':
+      '<div class="tierline"><div class="bolt"><b>'+esc(t.name)+'</b></div><div style="flex:1"><div style="font-family:var(--display);font-size:2.1rem;line-height:1">'+n(m.points_balance)+' pts</div>'+
+        '<div class="dim" style="font-size:.88rem;margin:.2rem 0 .4rem">'+usd(x.spend_12mo_cents)+' spent in 12 months'+(nx?', '+usd(nx.min_spend_cents-x.spend_12mo_cents)+' to '+esc(nx.name):', top tier')+'</div><div class="bar"><i style="width:'+pct+'%"></i></div></div></div>')+
+      (Object.keys(veh).length?'<div class="steel panel sec"><h3>Vehicles</h3>'+Object.keys(veh).map(function(k){ var j=veh[k]; return '<div>'+esc(j.vehicle||'Vehicle')+(j.vin?' <span class="dim">VIN '+esc(j.vin)+'</span>':'')+(j.mileage?' <span class="dim">'+n(j.mileage)+' mi</span>':'')+'</div>'; }).join('')+'</div>':'')+
+      '<div class="steel panel sec"><h3>Jobs</h3>'+((x.jobs||[]).length?'<table>'+x.jobs.map(function(j){ return '<tr class="click" data-job="'+j.id+'"><td class="dim" style="white-space:nowrap">'+dayLabel((j.sched_date||j.created_at||'').slice(0,10))+'</td><td>'+esc(j.service||'')+'<div class="dim" style="font-size:.82rem">'+esc(j.vehicle||'')+'</div></td><td>'+stageChip(j)+(j.total_cents?'<div class="dim" style="font-size:.82rem">'+usd(j.total_cents)+'</div>':'')+'</td></tr>'; }).join('')+'</table>':'<div class="dim">No jobs on file yet.</div>')+'</div>'+
+      (OWN()?'<label class="row sec" style="color:var(--text);font-family:var(--body);cursor:pointer"><input type="checkbox" id="fleetBox"'+(m.is_fleet?' checked':'')+'> Fleet account (FleetCare pricing, earns no points)</label>'+
+        '<div class="steel panel sec"><h3>Adjust points</h3><div class="row"><input id="adjPts" type="number" placeholder="+50 or -50" style="width:130px"><input id="adjNote" placeholder="Reason (shows in their history)" style="flex:1;min-width:160px"><button class="btn sm" id="adjGo">Apply</button></div></div>':'')+
+      (x.vouchers.length?'<div class="steel panel sec"><h3>Reward vouchers</h3><div class="scroll"><table>'+x.vouchers.map(voucherRow).join('')+'</table></div></div>':'')+
+      '<div class="steel panel"><h3>Points history</h3>'+(x.ledger.length?'<table>'+x.ledger.map(function(l){ return '<tr><td class="dim" style="white-space:nowrap">'+when(l.created_at)+'</td><td>'+esc(l.note||TYPE[l.type])+'</td><td>'+signed(l.points)+'</td></tr>'; }).join('')+'</table>':'<div class="dim">No points activity yet.</div>')+'</div>';
+    sh.innerHTML=h;
+    $('#closeDrawer').addEventListener('click', closeDrawer);
+    $$('#sheet tr[data-job]').forEach(function(tr){ tr.addEventListener('click', function(){ openJob(tr.dataset.job); }); });
+    $('#newForMember').addEventListener('click', function(){ S.prefill={member_id:m.id,customer_name:m.name,email:m.email,phone:m.phone}; $('#drawer').classList.add('hide'); go('new'); });
+    if($('#fleetBox')) $('#fleetBox').addEventListener('change', function(){ var on=this.checked; api('/admin/member/'+m.id+'/fleet',{method:'POST',body:{is_fleet:on}}).then(function(){ toast(on?'Marked as fleet':'Fleet flag removed'); openMember(m.id); }).catch(function(e){ toast(e.message,true); }); });
+    if($('#adjGo')) $('#adjGo').addEventListener('click', function(){
+      var p=parseInt($('#adjPts').value,10), note=$('#adjNote').value.trim();
+      if(!p) return toast('Enter a point amount',true); if(!note) return toast('Add a reason',true);
+      api('/admin/adjust',{method:'POST',body:{member_id:m.id,points:p,note:note}}).then(function(){ toast('Points adjusted'); openMember(m.id); }).catch(function(e){ toast(e.message,true); });
+    });
+    bindVoucherButtons(function(){ openMember(m.id); });
+  }).catch(function(e){ sh.innerHTML='<div class="empty">'+esc(e.message)+'</div>'; });
+}
+
+/* ───────── VOUCHERS ───────── */
+function voucherRow(v){
+  var who=v.member?'<td>'+esc(v.member.name||v.member.email)+(v.member.phone?'<div class="dim" style="font-size:.82rem">'+esc(v.member.phone)+'</div>':'')+'</td>':'';
+  var where=v.status==='applied'?'On booking '+esc(v.booking_order):v.status==='used'?'Used'+(v.used_order?' on '+esc(v.used_order):''):v.status==='void'?'Points returned':'Not used yet';
+  var acts=(v.status==='active'||v.status==='applied')?'<button class="btn sm" data-vused="'+v.id+'">Mark used</button>'+(OWN()?' <button class="btn danger sm" data-vvoid="'+v.id+'">Void</button>':''):'';
+  return '<tr><td><b style="font-family:var(--head)">'+esc(v.code)+'</b><div class="dim" style="font-size:.82rem">'+when(v.created_at)+'</div></td>'+who+
+    '<td>'+esc(v.reward_name)+'<div class="dim" style="font-size:.82rem">'+usd(v.value_cents)+' value, '+n(v.points_cost)+' pts</div></td><td><span class="chip '+v.status+'">'+v.status+'</span><div class="dim" style="font-size:.82rem">'+where+'</div></td><td style="white-space:nowrap">'+acts+'</td></tr>';
+}
+function bindVoucherButtons(after){
+  $$('[data-vused]').forEach(function(b){ b.addEventListener('click', function(){
+    var o=prompt('Invoice or job # this was used on (optional):',''); if(o===null) return;
+    api('/admin/voucher/'+b.dataset.vused+'/used',{method:'POST',body:{order:o}}).then(function(){ toast('Voucher marked used'); after(); refreshCounts(); }).catch(function(e){ toast(e.message,true); });
+  }); });
+  $$('[data-vvoid]').forEach(function(b){ b.addEventListener('click', function(){
+    if(!confirm('Void this voucher and return the points?')) return;
+    api('/admin/voucher/'+b.dataset.vvoid+'/void',{method:'POST'}).then(function(){ toast('Voucher voided, points returned'); after(); refreshCounts(); }).catch(function(e){ toast(e.message,true); });
+  }); });
+}
+VIEWS.vouchers = function(){
+  $('#view').innerHTML='<h2>Reward vouchers</h2><p class="dim" style="max-width:640px;margin-top:-.6rem">Codes customers got by redeeming points. Vouchers used on a job are marked used automatically when you mark the job paid with the code.</p>'+
+    '<div class="row" style="margin-bottom:1rem"><select id="vstat" style="width:auto"><option value="open">Open</option><option value="used">Used</option><option value="void">Voided</option><option value="all">All</option></select></div><div id="vlist" class="steel"></div>';
+  $('#vstat').addEventListener('change', loadVouchers); loadVouchers();
+};
+function loadVouchers(){
+  api('/admin/vouchers?status='+$('#vstat').value).then(function(d){
+    $('#vlist').innerHTML=d.vouchers.length?'<div class="scroll"><table><tr><th>Code</th><th>Customer</th><th>Reward</th><th>Status</th><th></th></tr>'+d.vouchers.map(voucherRow).join('')+'</table></div>':'<div class="empty">No vouchers here.</div>';
+    bindVoucherButtons(loadVouchers);
+  }).catch(function(e){ $('#vlist').innerHTML='<div class="empty">'+esc(e.message)+'</div>'; });
+}
+
+/* ───────── ADD POINTS (owner) ───────── */
+VIEWS.points = function(){
+  var reasons=['Goodwill','Job paid before the program started','Correction','Promotion','Other'];
+  $('#view').innerHTML='<h2>Add points</h2><p class="dim" style="max-width:640px;margin-top:-.6rem">Give or remove points by hand. The reason shows in the customer\'s history. For paid jobs, mark the job paid instead so tier and bonuses count.</p>'+
+    '<form id="ptsForm" class="steel panel" style="max-width:600px"><div class="field"><label>Customer</label><input id="ptsFind" placeholder="Search by name, email, or phone" autocomplete="off"><div id="ptsResults"></div><div id="ptsPicked" class="help"></div></div>'+
+    '<div id="ptsNew" class="grid g2 hide"><div class="field"><label>Email (new member)</label><input name="email" type="email"></div><div class="field"><label>Name</label><input name="name"></div></div>'+
+    '<div class="grid g2"><div class="field"><label>Points</label><input name="points" type="number" step="1" placeholder="100, or -100 to remove"></div><div class="field"><label>Reason</label><select name="reason">'+reasons.map(function(r){return '<option>'+esc(r)+'</option>';}).join('')+'</select></div></div>'+
+    '<div class="field"><label>Note for the customer</label><input name="note" placeholder="e.g. Sorry for the late arrival on Oct 2"></div><button class="btn">Apply points</button><div id="ptsOut" class="help" style="margin-top:.8rem"></div></form>';
+  var picked=null, t;
+  function pick(m){ picked=m; $('#ptsResults').innerHTML=''; $('#ptsFind').value=''; $('#ptsNew').classList.add('hide');
+    $('#ptsPicked').innerHTML=m?'Selected: <b style="color:var(--text)">'+esc(m.name||m.email)+'</b> ('+esc(m.email||'')+', '+n(m.points_balance)+' points) <a href="#" id="ptsClear">Change</a>':'';
+    if(m) $('#ptsClear').addEventListener('click', function(e){ e.preventDefault(); pick(null); }); }
+  $('#ptsFind').addEventListener('keydown', function(e){ if(e.key==='Enter') e.preventDefault(); });
+  $('#ptsFind').addEventListener('input', function(){ clearTimeout(t); var q=this.value.trim(); if(q.length<2){ $('#ptsResults').innerHTML=''; return; }
+    t=setTimeout(function(){ api('/admin/members?q='+encodeURIComponent(q)).then(function(d){
+      $('#ptsResults').innerHTML=d.members.slice(0,6).map(function(m,i){ return '<button type="button" class="btn ghost sm" data-pi="'+i+'" style="display:block;width:100%;text-align:left;margin-top:.3rem">'+esc(m.name||'—')+' <span class="dim">'+esc(m.email||'')+', '+n(m.points_balance)+' pts</span></button>'; }).join('')+
+        '<button type="button" class="btn ghost sm" id="ptsAddNew" style="display:block;width:100%;text-align:left;margin-top:.3rem">Not a member yet? Add by email</button>';
+      $$('#ptsResults [data-pi]').forEach(function(b){ b.addEventListener('click', function(){ pick(d.members[+b.dataset.pi]); }); });
+      $('#ptsAddNew').addEventListener('click', function(){ pick(null); $('#ptsNew').classList.remove('hide'); var f=$('#ptsForm'); if(/@/.test(q)) fe(f,'email').value=q; fe(f,'email').focus(); });
+    }); }, 250); });
+  $('#ptsForm').addEventListener('submit', function(e){
+    e.preventDefault(); var f=e.target, out=$('#ptsOut'), pts=parseInt(fe(f,'points').value,10);
+    if(!pts){ out.innerHTML='<span class="minus">Enter a point amount.</span>'; return; }
+    if(!picked && !fe(f,'email').value.trim()){ out.innerHTML='<span class="minus">Pick a customer, or choose "Add by email."</span>'; return; }
+    var who=picked?(picked.name||picked.email):fe(f,'email').value.trim();
+    if(!confirm((pts>0?'Add ':'Remove ')+n(Math.abs(pts))+' points '+(pts>0?'to ':'from ')+who+'?')) return;
+    var body={points:pts,note:fe(f,'reason').value+(fe(f,'note').value.trim()?': '+fe(f,'note').value.trim():'')};
+    if(picked) body.member_id=picked.id; else { body.email=fe(f,'email').value.trim(); body.name=fe(f,'name').value.trim(); }
+    api('/admin/adjust',{method:'POST',body:body}).then(function(r){ out.innerHTML='<span class="plus">Done. New balance: '+n(r.balance)+'.</span>'; f.reset(); pick(null); })
+      .catch(function(err){ out.innerHTML='<span class="minus">'+esc(err.message)+'</span>'; });
+  });
+};
+
+/* ───────── OVERVIEW (owner) ───────── */
+VIEWS.overview = function(){
+  Promise.all([api('/admin/stats'), api('/admin/followups')]).then(function(r){
+    var s=r[0].stats, fu=r[1].followups, fuVal=fu.reduce(function(a,f){ return a+f.value_cents; },0);
+    $('#view').innerHTML='<h2>Overview</h2><div class="gauges">'+
+      '<div class="gauge"><b>'+usd(s.job_revenue_30d)+'</b><span>Jobs paid, 30 days</span><em>'+n(s.jobs_paid_30d)+' jobs</em></div>'+
+      '<div class="gauge"><b>'+n(s.open_bookings)+'</b><span>Open jobs</span><em>Not yet paid</em></div>'+
+      '<div class="gauge"><b>'+usd(fuVal)+'</b><span>Declined work to follow up</span><em>'+n(fu.length)+' customers</em></div>'+
+      '<div class="gauge"><b>'+n(s.members)+'</b><span>Rewards members</span><em>'+n(s.new_30d)+' joined in 30 days</em></div></div>'+
+      '<div class="grid g4" style="margin-bottom:1rem">'+mini('Unredeemed points',n(s.outstanding_points)+' <span style="font-size:1rem;color:var(--dim)">≈ '+usd(s.liability_cents)+'</span>')+mini('Open reward vouchers',usd(s.open_voucher_cents))+mini('Referrals converted',n(s.referrals_converted))+mini('Points redeemed, 30 days',n(s.redeemed_30d))+'</div>'+
+      '<div class="steel panel"><h3>Recent points activity</h3>'+(r[0].recent.length?'<div class="scroll"><table>'+r[0].recent.map(function(x){ return '<tr><td class="dim">'+when(x.created_at)+'</td><td>'+esc(x.member?(x.member.name||x.member.email):'')+'</td><td>'+esc(x.note||TYPE[x.type])+'</td><td>'+signed(x.points)+'</td></tr>'; }).join('')+'</table></div>':'<div class="empty">No activity yet.</div>')+'</div>';
+  }).catch(fail);
+};
+function mini(l,v){ return '<div class="steel panel"><div class="dim" style="font-family:var(--head);font-size:.85rem">'+l+'</div><div style="font-family:var(--display);font-size:1.7rem;line-height:1.15">'+v+'</div></div>'; }
+
+/* ───────── TEAM & ACCESS (owner) ───────── */
+VIEWS.staff = function(){
+  api('/admin/staff').then(function(d){
+    var roleName={owner:'Owner',writer:'Service writer',tech:'Technician'};
+    $('#view').innerHTML='<h2>Team & access</h2>'+
+      '<div class="steel panel sec" style="max-width:760px"><h3>What each role can do</h3><div class="kv">'+
+        '<dt>Owner</dt><dd>Everything, including revenue, program settings, adding points, voiding vouchers, undoing payments, and managing the team.</dd>'+
+        '<dt>Service writer</dt><dd>Jobs, scheduling and dispatch, estimates, texting customers, marking jobs paid, follow-ups, customers, and reward vouchers. No revenue reports, settings, or point adjustments.</dd>'+
+        '<dt>Technician</dt><dd>Only jobs assigned to them: their day, navigation, "On my way" texts, stage updates, findings, VIN and mileage, notes, and estimates if you allow it in Settings.</dd></div></div>'+
+      '<div class="steel panel sec"><h3>Team</h3>'+(d.staff.length?'<div class="scroll"><table><tr><th>Name</th><th>Email</th><th>Role</th><th>Last sign-in</th><th></th></tr>'+d.staff.map(function(s){
+        return '<tr><td>'+esc(s.name)+(s.active?'':' <span class="chip bad">Disabled</span>')+'<div class="dim" style="font-size:.82rem">'+esc(s.phone||'')+'</div></td><td>'+esc(s.email)+'</td>'+
+          '<td><select data-role="'+s.id+'" style="width:auto">'+['owner','writer','tech'].map(function(r){ return '<option value="'+r+'"'+(r===s.role?' selected':'')+'>'+roleName[r]+'</option>'; }).join('')+'</select></td>'+
+          '<td class="dim">'+(s.last_login_at?when(s.last_login_at):'Never')+'</td>'+
+          '<td style="white-space:nowrap"><button class="btn ghost sm" data-reset="'+s.id+'">Reset password</button> <button class="btn '+(s.active?'danger':'ghost')+' sm" data-active="'+s.id+'" data-on="'+(s.active?0:1)+'">'+(s.active?'Disable':'Enable')+'</button></td></tr>';
+      }).join('')+'</table></div>':'<div class="dim">No team members yet. Add yourself as a technician or owner if you work jobs, so you can be assigned.</div>')+'</div>'+
+      '<form id="addStaff" class="steel panel" style="max-width:760px"><h3>Add a team member</h3><div class="grid g2">'+fld('Name','name','')+fld('Email (their sign-in)','email','','','email')+fld('Cell phone','phone','','','tel')+
+        '<div class="field"><label>Role</label><select name="role"><option value="writer">Service writer</option><option value="tech">Technician</option><option value="owner">Owner</option></select></div></div>'+
+        '<div class="field"><label>Temporary password</label><div class="row" style="flex-wrap:nowrap"><input name="password" minlength="10"><button type="button" class="btn ghost sm" id="genPw">Generate</button></div><div class="help">Give it to them in person or by text. They can change it under My account.</div></div>'+
+        '<button class="btn">Add team member</button><div id="stOut" class="help" style="margin-top:.6rem"></div></form>';
+    $('#genPw').addEventListener('click', function(){ var c='ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789', a=new Uint32Array(12); crypto.getRandomValues(a); fe($('#addStaff'),'password').value=Array.prototype.map.call(a,function(x){ return c[x%c.length]; }).join(''); });
+    $('#addStaff').addEventListener('submit', function(e){
+      e.preventDefault(); var f=e.target;
+      api('/admin/staff',{method:'POST',body:{name:fe(f,'name').value,email:fe(f,'email').value,phone:fe(f,'phone').value,role:fe(f,'role').value,password:fe(f,'password').value}})
+        .then(function(){ toast('Team member added. Sign-in: '+fe(f,'email').value); VIEWS.staff(); }).catch(function(err){ $('#stOut').innerHTML='<span class="minus">'+esc(err.message)+'</span>'; });
+    });
+    $$('[data-role]').forEach(function(s){ s.addEventListener('change', function(){ api('/admin/staff/'+s.dataset.role,{method:'PATCH',body:{role:s.value}}).then(function(){ toast('Role updated. They\'ll need to sign in again.'); }).catch(function(e){ toast(e.message,true); }); }); });
+    $$('[data-active]').forEach(function(b){ b.addEventListener('click', function(){ var on=b.dataset.on==='1'; if(!on&&!confirm('Disable this account? They\'re signed out right away.')) return;
+      api('/admin/staff/'+b.dataset.active,{method:'PATCH',body:{active:on}}).then(function(){ toast(on?'Account enabled':'Account disabled'); VIEWS.staff(); }).catch(function(e){ toast(e.message,true); }); }); });
+    $$('[data-reset]').forEach(function(b){ b.addEventListener('click', function(){ var pw=prompt('New temporary password (10+ characters):',''); if(!pw) return;
+      api('/admin/staff/'+b.dataset.reset,{method:'PATCH',body:{password:pw}}).then(function(){ toast('Password reset. They\'re signed out until they use it.'); }).catch(function(e){ toast(e.message,true); }); }); });
+  }).catch(fail);
+};
+
+/* ───────── MY ACCOUNT ───────── */
+VIEWS.account = function(){
+  var owner=!S.me.id;
+  $('#view').innerHTML='<h2>My account</h2><div class="steel panel sec" style="max-width:560px"><div class="kv"><dt>Name</dt><dd>'+esc(S.me.name)+'</dd><dt>Email</dt><dd>'+esc(S.me.email)+'</dd><dt>Role</dt><dd>'+esc({owner:'Owner',writer:'Service writer',tech:'Technician'}[S.me.role])+'</dd></div></div>'+
+    (owner?'<div class="steel panel sec" style="max-width:560px">You\'re signed in with the main owner login. Its password is <b>LOYALTY_ADMIN_PASSWORD</b> on Render; change it there.</div>':
+    '<form id="pwForm" class="steel panel sec" style="max-width:560px"><h3>Change password</h3>'+fld('Current password','current','','','password')+fld('New password (10+ characters)','next','','','password')+'<button class="btn">Change password</button><div id="pwOut" class="help" style="margin-top:.6rem"></div></form>')+
+    '<button class="btn ghost" id="soBtn">Sign out</button>';
+  $('#soBtn').addEventListener('click', signOut);
+  if($('#pwForm')) $('#pwForm').addEventListener('submit', function(e){ e.preventDefault(); var f=e.target;
+    api('/admin/password',{method:'POST',body:{current:fe(f,'current').value,next:fe(f,'next').value}}).then(function(){ toast('Password changed. Sign in again.'); signOut(); }).catch(function(err){ $('#pwOut').innerHTML='<span class="minus">'+esc(err.message)+'</span>'; }); });
+};
+
+/* ───────── SETTINGS (owner) ───────── */
+VIEWS.settings = function(){
+  api('/admin/settings').then(function(d){ S.settings=JSON.parse(JSON.stringify(d.config)); S.defaults=d.defaults; S.windows=S.settings.time_windows; renderSettings(); }).catch(fail);
+};
+function renderSettings(){
+  var c=S.settings;
+  function num(name,label,val,help,step){ return '<div class="field"><label>'+label+'</label><input data-k="'+name+'" type="number" step="'+(step||'1')+'" value="'+esc(val)+'">'+(help?'<div class="help">'+help+'</div>':'')+'</div>'; }
+  function txt(name,label,val,help,ph){ return '<div class="field"><label>'+label+'</label><input data-k="'+name+'" value="'+esc(val||'')+'"'+(ph?' placeholder="'+esc(ph)+'"':'')+'>'+(help?'<div class="help">'+help+'</div>':'')+'</div>'; }
+  var tl={confirm:'Confirm appointment',on_way:'On my way',estimate:'Estimate ready',complete:'Job done + payment link',follow_up:'Recommended work follow-up',review:'Ask for a review'};
+  $('#view').innerHTML='<h2>Settings</h2><div class="settings">'+
+    '<div class="steel panel sec"><h3>Shop</h3><div class="grid g3">'+
+      txt('shop_phone','Shop phone',c.shop_phone)+txt('payment_link','Payment portal link',c.payment_link,'Goes in the "Job done" text','https://...')+txt('notify_phone','Your cell for alerts',c.notify_phone,'Texted when a customer approves an estimate')+
+      num('labor_rate','Labor rate ($/hr)',(c.labor_rate_cents||0)/100,'Default for new labor lines. 0 = type each price',0.01)+num('parts_markup_pct','Parts markup (%)',c.parts_markup_pct,'Applied with the % button on part lines',0.5)+num('parts_tax_rate','Sales tax on parts (%)',c.parts_tax_rate,'Confirm what\'s taxable with your CPA',0.01)+
+      num('follow_up_days','Follow up declined work after (days)',c.follow_up_days)+
+    '</div><div class="field"><label>Appointment time windows (comma-separated)</label><input data-k="time_windows" value="'+esc((c.time_windows||[]).join(', '))+'"></div>'+
+    '<label class="row" style="color:var(--text);font-family:var(--body)"><input type="checkbox" data-k="tech_can_estimate"'+(c.tech_can_estimate!==false?' checked':'')+'> Technicians can build and send estimates from the field</label></div>'+
+    '<div class="steel panel sec"><h3>Text message templates</h3><div class="help" style="margin:-.5rem 0 .8rem">Placeholders: {first} {name} {service} {vehicle} {date} {window} {tech} {eta} {estimate_link} {total} {pay_link} {shop_phone} {review_link} {recommended}</div>'+
+      Object.keys(tl).map(function(k){ return '<div class="field"><label>'+tl[k]+'</label><textarea data-tpl="'+k+'" rows="2">'+esc((c.sms_templates||{})[k]||'')+'</textarea></div>'; }).join('')+'</div>'+
+    '<div class="steel panel sec"><h3>Rewards: earning</h3><div class="grid g4">'+
+      num('points_per_dollar','Points per $1 of labor',c.points_per_dollar,'Also for fees paid in Shopify',0.25)+num('parts_points_per_dollar','Points per $1 of parts',c.parts_points_per_dollar==null?c.points_per_dollar:c.parts_points_per_dollar,'',0.25)+
+      num('welcome_bonus','Welcome bonus',c.welcome_bonus,'After first paid service')+num('cents_per_point','Cost per point (¢)',c.cents_per_point,'For the liability estimate',0.1)+
+      num('referral_bonus_referrer','Referral: referrer gets',c.referral_bonus_referrer)+num('referral_bonus_friend','Referral: friend gets',c.referral_bonus_friend)+
+      num('referral_min_dollars','Referral minimum job ($)',c.referral_min_cents/100)+num('expire_months','Points expire after (months)',c.expire_months,'0 = never')+
+      num('book_ahead_bonus','Book-ahead bonus',c.book_ahead_bonus)+num('book_ahead_days','Book-ahead days',c.book_ahead_days)+num('offpeak_bonus','Slow-day bonus',c.offpeak_bonus)+
+      num('review_bonus','Google review bonus',c.review_bonus,'Leave at 0. Google bans rewards for reviews.')+'</div>'+
+      '<div class="field"><label>Slow days</label><div class="row">'+['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].map(function(d,i){ return '<label class="row" style="gap:.3rem;margin:0;color:var(--text);font-family:var(--body)"><input type="checkbox" data-day="'+i+'"'+((c.offpeak_days||[]).indexOf(i)>-1?' checked':'')+'>'+d+'</label>'; }).join('')+'</div></div>'+
+      txt('payment_methods','Payment methods (comma-separated)',(c.payment_methods||[]).join(', '))+txt('google_review_url','Google review link',c.google_review_url,'Used in the "Ask for a review" text','https://g.page/r/.../review')+'</div>'+
+    '<div class="steel panel sec"><h3>Rewards: tiers</h3><div class="scroll"><table><tr><th>Name</th><th>Spend from ($)</th><th>Multiplier</th><th>Perks (one per line)</th><th></th></tr>'+
+      c.tiers.map(function(t,i){ return '<tr><td><input data-t="'+i+'" data-f="name" value="'+esc(t.name)+'"></td><td><input data-t="'+i+'" data-f="min" type="number" value="'+(t.min_spend_cents/100)+'"></td><td><input data-t="'+i+'" data-f="multiplier" type="number" step="0.05" value="'+t.multiplier+'"></td><td><textarea data-t="'+i+'" data-f="perks" rows="2">'+esc((t.perks||[]).join('\n'))+'</textarea></td><td><button class="btn danger sm" data-deltier="'+i+'">Remove</button></td></tr>'; }).join('')+
+      '</table></div><button class="btn ghost sm" id="addTier" style="margin-top:.6rem">Add tier</button></div>'+
+    '<div class="steel panel sec"><h3>Rewards: catalog</h3><div class="scroll"><table><tr><th>On</th><th>Name</th><th>Points</th><th>Value ($)</th><th>Min invoice ($)</th><th>Description</th><th></th></tr>'+
+      c.rewards.map(function(r,i){ return '<tr><td><input type="checkbox" data-r="'+i+'" data-f="active"'+(r.active?' checked':'')+'></td><td><input data-r="'+i+'" data-f="name" value="'+esc(r.name)+'"></td><td><input data-r="'+i+'" data-f="points" type="number" value="'+r.points+'"></td><td><input data-r="'+i+'" data-f="value" type="number" step="0.01" value="'+(r.value_cents/100)+'"></td><td><input data-r="'+i+'" data-f="min" type="number" value="'+((r.min_invoice_cents||0)/100)+'"></td><td><input data-r="'+i+'" data-f="description" value="'+esc(r.description||'')+'"></td><td><button class="btn danger sm" data-delrew="'+i+'">Remove</button></td></tr>'; }).join('')+
+      '</table></div><button class="btn ghost sm" id="addRew" style="margin-top:.6rem">Add reward</button></div>'+
+    '<div class="steel panel sec"><h3>Your extra program rules</h3><div class="help" style="margin:-.5rem 0 .8rem">Shown on the website rules page. One per line.</div><textarea data-k="terms_extra" rows="3">'+esc((c.terms_extra||[]).join('\n'))+'</textarea></div>'+
+    '<div class="row"><button class="btn" id="saveSet">Save settings</button><button class="btn ghost" id="resetSet">Load recommended defaults</button></div></div>';
+  $$('[data-k]').forEach(function(inp){ inp.addEventListener('change', function(){
+    var k=inp.dataset.k, v=inp.value;
+    if(k==='tech_can_estimate') c.tech_can_estimate=inp.checked;
+    else if(k==='labor_rate') c.labor_rate_cents=cents(v);
+    else if(k==='referral_min_dollars') c.referral_min_cents=cents(v);
+    else if(k==='time_windows'||k==='payment_methods') c[k]=v.split(',').map(function(x){return x.trim();}).filter(Boolean);
+    else if(k==='terms_extra') c.terms_extra=v.split('\n').map(function(x){return x.trim();}).filter(Boolean);
+    else if(['shop_phone','payment_link','notify_phone','google_review_url'].indexOf(k)>-1) c[k]=v.trim();
+    else c[k]=parseFloat(v);
+  }); });
+  $$('[data-tpl]').forEach(function(ta){ ta.addEventListener('change', function(){ c.sms_templates=c.sms_templates||{}; c.sms_templates[ta.dataset.tpl]=ta.value; }); });
+  $$('[data-day]').forEach(function(cb){ cb.addEventListener('change', function(){ c.offpeak_days=$$('[data-day]').filter(function(x){return x.checked;}).map(function(x){return +x.dataset.day;}); }); });
+  $$('[data-t]').forEach(function(inp){ inp.addEventListener('change', function(){ var t=c.tiers[inp.dataset.t], f=inp.dataset.f;
+    if(f==='min') t.min_spend_cents=cents(inp.value); else if(f==='multiplier') t.multiplier=parseFloat(inp.value); else if(f==='perks') t.perks=inp.value.split('\n').map(function(s){return s.trim();}).filter(Boolean); else t.name=inp.value.trim(); }); });
+  $$('[data-r]').forEach(function(inp){ inp.addEventListener('change', function(){ var r=c.rewards[inp.dataset.r], f=inp.dataset.f;
+    if(f==='active') r.active=inp.checked; else if(f==='points') r.points=parseInt(inp.value,10); else if(f==='value') r.value_cents=cents(inp.value); else if(f==='min') r.min_invoice_cents=cents(inp.value); else r[f]=inp.value.trim(); }); });
+  $$('[data-deltier]').forEach(function(b){ b.addEventListener('click', function(){ c.tiers.splice(+b.dataset.deltier,1); renderSettings(); }); });
+  $$('[data-delrew]').forEach(function(b){ b.addEventListener('click', function(){ c.rewards.splice(+b.dataset.delrew,1); renderSettings(); }); });
+  $('#addTier').addEventListener('click', function(){ c.tiers.push({key:'tier'+Date.now().toString(36),name:'New tier',min_spend_cents:0,multiplier:1,perks:[]}); renderSettings(); });
+  $('#addRew').addEventListener('click', function(){ c.rewards.push({key:'r'+Date.now().toString(36),name:'New reward',points:1000,value_cents:2500,min_invoice_cents:0,active:false,description:''}); renderSettings(); });
+  $('#resetSet').addEventListener('click', function(){ if(confirm('Replace everything here with the recommended defaults? Nothing is saved until you press Save.')){ S.settings=JSON.parse(JSON.stringify(S.defaults)); renderSettings(); } });
+  $('#saveSet').addEventListener('click', function(){ c.tiers.sort(function(a,b){ return a.min_spend_cents-b.min_spend_cents; });
+    api('/admin/settings',{method:'PUT',body:{config:c}}).then(function(d){ S.settings=d.config; S.windows=d.config.time_windows; toast('Settings saved'); renderSettings(); }).catch(function(e){ toast(e.message,true); }); });
+}
+
+/* ───────── boot ───────── */
+try{ S.token=sessionStorage.getItem(TOKEN_KEY); S.me=JSON.parse(sessionStorage.getItem(ME_KEY)||'null'); }catch(e){}
+if(S.token && S.me){
+  var exp=0; try{ exp=JSON.parse(atob(S.token.split('.')[0].replace(/-/g,'+').replace(/_/g,'/'))).exp; }catch(e){}
+  if(exp>Date.now()) start(); else signOut();
+} else signOut();
+})();
+</script>
+</body>
+</html>
