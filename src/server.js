@@ -11,14 +11,32 @@ const path = require('path');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// ── Startup check: list any missing settings instead of crashing ─────────────
+(() => {
+  const needed = ['SUPABASE_URL', 'SUPABASE_SERVICE_KEY', 'STRIPE_SECRET_KEY', 'EMAIL_FROM', 'GMAIL_APP_PASSWORD'];
+  const missing = needed.filter(k => !process.env[k]);
+  if (missing.length) console.warn('[startup] Missing env vars on Render:', missing.join(', '));
+})();
+
+// Placeholder that explains what's missing if a route tries to use an unconfigured service
+function notConfigured(name, vars) {
+  return new Proxy({}, {
+    get() { throw new Error(`${name} is not configured. Add ${vars} in Render → Environment.`); }
+  });
+}
+
 // ── Stripe ──────────────────────────────────────────────────────────────────
-const stripe = Stripe(process.env.STRIPE_SECRET_KEY);
+const stripe = process.env.STRIPE_SECRET_KEY
+  ? Stripe(process.env.STRIPE_SECRET_KEY)
+  : notConfigured('Stripe', 'STRIPE_SECRET_KEY');
 
 // ── Supabase ─────────────────────────────────────────────────────────────────
-const supabase = createClient(
-  process.env.SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_KEY   // service key for storage uploads
-);
+const supabase = (process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_KEY)
+  ? createClient(
+      process.env.SUPABASE_URL,
+      process.env.SUPABASE_SERVICE_KEY   // service key for storage uploads
+    )
+  : notConfigured('Supabase', 'SUPABASE_URL and SUPABASE_SERVICE_KEY');
 
 // ── Nodemailer (Gmail / Google Workspace) ────────────────────────────────────
 const transporter = nodemailer.createTransport({
@@ -104,8 +122,8 @@ const EMAIL = {
   accountWelcome({ name }) {
     return this.wrap(`
       <h2 style="color:#C9A84C;font-size:20px;margin:0 0 16px;">Welcome to Upper Echelon Automotive 👑</h2>
-      <p style="color:rgba(245,240,232,0.8);margin:0 0 16px;">Hi ${name}, your account has been created and you've earned <strong style="color:#C9A84C;">100 welcome points!</strong></p>
-      <p style="color:rgba(245,240,232,0.8);margin:0 0 20px;">Log in at <a href="https://ueauto.store" style="color:#C9A84C;">ueauto.store</a> to book service, track your appointments, and redeem your rewards.</p>
+      <p style="color:rgba(245,240,232,0.8);margin:0 0 16px;">Hi ${name}, your account has been created. You'll earn <strong style="color:#C9A84C;">100 welcome points</strong> after your first completed service.</p>
+      <p style="color:rgba(245,240,232,0.8);margin:0 0 20px;">Visit <a href="https://ueauto.store" style="color:#C9A84C;">ueauto.store</a> to book service and check your rewards.</p>
     `);
   },
 
@@ -273,9 +291,23 @@ const EMAIL = {
   },
 };
 
+// ── Loyalty program + service desk (mounted BEFORE the JSON parser) ──────────
+// Shopify webhooks need the raw request body, so this must come before express.json().
+// Works whether loyalty.js sits next to this file (src/) or at the top of the repo.
+(() => {
+  let loyalty = null;
+  for (const p of ['./loyalty', '../loyalty']) {
+    try { loyalty = require(p); break; }
+    catch (e) { if (e.code !== 'MODULE_NOT_FOUND' || !String(e.message).includes(`'${p}'`)) throw e; }
+  }
+  if (loyalty) app.use('/loyalty', loyalty);
+  else console.warn('[loyalty] loyalty.js not found. Upload loyalty.js and loyalty-admin.html to the repo.');
+})();
+
 // ── Middleware ────────────────────────────────────────────────────────────────
 app.use(cors({ origin: '*' }));
-app.use(express.json());
+// Stripe's FleetCare webhook needs the raw body for its signature check, so skip JSON parsing there.
+app.use((req, res, next) => (req.path === '/fleetcare/webhook' ? next() : express.json()(req, res, next)));
 
 // ── Multer (in-memory for Supabase upload) ────────────────────────────────────
 const upload = multer({
@@ -656,7 +688,7 @@ app.get('/connect-status/:technicianId', async (req, res) => {
 app.post('/payout-technician', async (req, res) => {
   try {
     const { technicianId, amount, adminPin } = req.body;
-    if (adminPin !== process.env.ADMIN_PIN) return res.status(403).json({ error: 'Unauthorized.' });
+    if (!process.env.ADMIN_PIN || adminPin !== process.env.ADMIN_PIN) return res.status(403).json({ error: 'Unauthorized.' });
     if (!amount || amount <= 0) return res.status(400).json({ error: 'Invalid amount.' });
 
     const { data: tech } = await supabase.from('uea_technicians').select('stripe_connect_id, name, email').eq('id', technicianId).single();
@@ -699,8 +731,6 @@ app.post('/send-sms', async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// ════════════════════════════════════════════════════════════════════════════════
-// START
 // ════════════════════════════════════════════════════════════════════════════════
 // FLEETCARE SUBSCRIPTIONS
 // ════════════════════════════════════════════════════════════════════════════════
@@ -763,10 +793,12 @@ app.post('/fleetcare/webhook', express.raw({ type: 'application/json' }), async 
   let event;
   try { event = stripe.webhooks.constructEvent(req.body, sig, process.env.STRIPE_WEBHOOK_SECRET || ''); }
   catch (e) { return res.status(400).json({ error: `Webhook error: ${e.message}` }); }
-  if (event.type === 'invoice.paid') {
-    const sub = event.data.object.subscription;
-    if (sub) await supabase.from('uea_fleet_subscriptions').update({ hours_used_this_period: 0, current_period_start: new Date().toISOString() }).eq('stripe_subscription_id', sub);
-  }
+  try {
+    if (event.type === 'invoice.paid') {
+      const sub = event.data.object.subscription;
+      if (sub) await supabase.from('uea_fleet_subscriptions').update({ hours_used_this_period: 0, current_period_start: new Date().toISOString() }).eq('stripe_subscription_id', sub);
+    }
+  } catch (e) { console.error('[FleetCare webhook]', e.message); return res.status(500).json({ error: e.message }); }
   res.json({ received: true });
 });
 
@@ -852,4 +884,7 @@ app.get('/time-clock/job/:appointmentId', async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// ════════════════════════════════════════════════════════════════════════════════
+// START
+// ════════════════════════════════════════════════════════════════════════════════
 app.listen(PORT, () => console.log(`UEA Backend running on port ${PORT}`));
