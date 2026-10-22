@@ -26,6 +26,7 @@ const TIME_SLOTS = ['7:00 AM', '8:00 AM', '9:00 AM', '10:00 AM', '11:00 AM', '12
   '1:00 PM', '2:00 PM', '3:00 PM', '4:00 PM', '5:00 PM', '6:00 PM', '7:00 PM', '8:00 PM', '9:00 PM', '10:00 PM'];
 const WEEKDAY_START = '9:00 AM';   // Monday–Friday bookings start here
 const DAYS_AHEAD = 60;             // how far out customers can book
+const LEAD_MINUTES = 120;          // online bookings need this much notice unless rush is paid
 const TZ = 'America/Chicago';
 const CAPACITY = Math.max(1, parseInt(process.env.SLOT_CAPACITY, 10) || 1);
 
@@ -71,13 +72,16 @@ const h = fn => (req, res) => Promise.resolve(fn(req, res)).catch(err => {
 function requireDb() {
   if (!supabase) throw httpErr(503, 'Booking availability is not set up yet (missing Supabase settings on the server).');
 }
-function checkSlot(date, time) {
+function checkSlot(date, time, rush) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw httpErr(400, 'Pick a date.');
   if (!TIME_SLOTS.includes(time)) throw httpErr(400, 'Pick a time.');
   const now = nowInTZ();
   if (date < now.date || date > addDays(now.date, DAYS_AHEAD)) throw httpErr(400, 'That date can’t be booked online. Pick another date.');
   if (!slotsForDate(date).includes(time)) throw httpErr(400, 'That time isn’t available on that day. Pick another time.');
   if (date === now.date && slotMinutes(time) <= now.minutes) throw httpErr(400, 'That time has already passed. Pick a later time.');
+  if (!rush && date === now.date && slotMinutes(time) < now.minutes + LEAD_MINUTES) {
+    throw httpErr(400, 'Online bookings need at least 2 hours\u2019 notice. Pick a later time, or choose Rush dispatch.');
+  }
 }
 
 // Small per-visitor limit so nobody can fill the calendar with fake holds.
@@ -147,7 +151,7 @@ router.post('/hold', h(async (req, res) => {
   const ip = String(req.get('x-forwarded-for') || req.ip || '').split(',')[0].trim();
   if (rateLimited(ip)) throw httpErr(429, 'Too many booking attempts. Please call (251) 289-0740.');
   const date = clean(b.date, 10), time = clean(b.time, 8);
-  checkSlot(date, time);
+  checkSlot(date, time, !!b.rush);
   const name = clean(b.name, 80), phone = clean(b.phone, 30);
   if (!name || !phone) throw httpErr(400, 'Name and phone are required.');
 
