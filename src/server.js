@@ -309,6 +309,18 @@ app.use(cors({ origin: '*' }));
 // Stripe's FleetCare webhook needs the raw body for its signature check, so skip JSON parsing there.
 app.use((req, res, next) => (req.path === '/fleetcare/webhook' ? next() : express.json()(req, res, next)));
 
+// ── Reviews + live booking availability ───────────────────────────────────────
+// Each loads only if its file is in the repo (next to this file or at the top level).
+function mountOptional(route, name) {
+  for (const p of [`./${name}`, `../${name}`]) {
+    try { app.use(route, require(p)); return; }
+    catch (e) { if (e.code !== 'MODULE_NOT_FOUND' || !String(e.message).includes(`'${p}'`)) throw e; }
+  }
+  console.warn(`[${name}] ${name}.js not found. Upload it to the repo to enable ${route}.`);
+}
+mountOptional('/reviews', 'reviews');
+mountOptional('/slots', 'slots');
+
 // ── Multer (in-memory for Supabase upload) ────────────────────────────────────
 const upload = multer({
   storage: multer.memoryStorage(),
