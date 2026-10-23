@@ -745,12 +745,24 @@ router.post('/book', h(async (req, res) => {
   if (dupe) return res.json({ ok: true, booking_id: dupe.id, duplicate: true });
 
   const email = cleanEmail(t(b.email, 160));
-  const { member, vehicle: veh } = await linkClient({ email, name, phone, address, vehicle: t(b.vehicle, 120) });
+  // Signed-in Rewards members: link the booking to their account and attach a reward they picked.
+  let signed = null, preMember = null, voucher = null;
+  if (b.auth) { try { signed = verifyCustomer(b.auth); } catch (e) { signed = null; } }
+  if (signed) {
+    preMember = await upsertMember({ customerId: signed.customerId, email: signed.email || email, name, phone, address })
+      .catch(e => { console.warn('[loyalty] member link failed:', e.message); return null; });
+  }
+  const { member, vehicle: veh } = await linkClient({ member_id: preMember ? preMember.id : null, email, name, phone, address, vehicle: t(b.vehicle, 120) });
+  const vcode = String(b.voucher_code || '').trim().toUpperCase();
+  if (signed && member && /^UER-[A-Z0-9]{6}$/.test(vcode)) {
+    voucher = (await sb(`uea_loyalty_vouchers?code=eq.${enc(vcode)}&member_id=eq.${member.id}&status=eq.active&select=id,code,reward_name`))[0] || null;
+  }
   const details = [
     ['Vehicle', b.vehicle], ['Service', b.service], ['Preferred Date', b.date_label || date], ['Preferred Time', time],
     ['Rush Service', b.rush ? 'YES (+$100 fee)' : 'No'], ['Contact Name', name], ['Phone', phone], ['Email', email],
     ['Service Location', address], ['Problem Description', b.concern], ['Additional Notes', b.notes],
-    ['Time Reserved', b.slot_reserved ? 'Yes' : 'No'], ['Service Agreement', b.agreement], ['Booking Ref', ref]
+    ['Time Reserved', b.slot_reserved ? 'Yes' : 'No'], ['Service Agreement', b.agreement],
+    ['Reward Voucher', voucher ? `${voucher.code} (${voucher.reward_name})` : null], ['Booking Ref', ref]
   ].filter(([, v]) => v != null && String(v).trim() !== '').map(([k, v]) => ({ name: k, value: String(v).slice(0, 2000) }));
 
   const created = await sb('uea_loyalty_bookings', {
@@ -760,11 +772,17 @@ router.post('/book', h(async (req, res) => {
       customer_name: name, phone, email, address, service: t(b.service, 200), vehicle: t(b.vehicle, 120),
       concern: t([b.concern, b.notes].filter(Boolean).join('\n\n'), 2000),
       appt_date: date, appt_time: time, sched_date: date, sched_window: time,
-      rush: !!b.rush, details, stage: 'new'
+      rush: !!b.rush, details, stage: 'new', voucher_code: voucher ? voucher.code : null
     }
   });
   const job = created[0];
   await logEvent(job.id, 'Website', 'status', `Booked online${b.rush ? ' (rush)' : ''}`);
+  if (voucher) {
+    await sb(`uea_loyalty_vouchers?id=eq.${voucher.id}&status=eq.active`, {
+      method: 'PATCH', body: { status: 'applied', booking_order: `Web booking ${fmtDate(date) || ''}`.trim(), applied_at: new Date().toISOString() }
+    }).catch(e => console.warn('[loyalty] voucher not applied:', e.message));
+    await logEvent(job.id, 'Website', 'note', `Customer applied reward ${voucher.code}: ${voucher.reward_name}`);
+  }
 
   // Text the owner (Settings → Shop → "Your cell") so new bookings never sit unseen.
   const cfg = await getConfig();
@@ -773,7 +791,7 @@ router.post('/book', h(async (req, res) => {
     sendSms(cfg.notify_phone, `UEA new booking${b.rush ? ' (RUSH)' : ''}: ${name}, ${t(b.service, 60) || 'service'}, ${t(b.vehicle, 40) || ''} — ${when}. ${address}. ${phone}`)
       .catch(e => console.warn('[loyalty] booking text not sent:', e.message));
   }
-  res.json({ ok: true, booking_id: job.id });
+  res.json({ ok: true, booking_id: job.id, member: !!member, voucher: voucher ? voucher.code : null });
 }));
 
 // ── Customer auth (signed by Shopify Liquid with LOYALTY_SECRET) ─────────────
@@ -790,16 +808,31 @@ function verifyCustomer(a) {
 
 async function customerProfile(member) {
   const cfg = await getConfig();
-  const [spend, ledger, vouchers, claims] = await Promise.all([
+  const [spend, ledger, vouchers, claims, jobs] = await Promise.all([
     rpc('uea_loyalty_spend_12mo', { p_member: member.id }),
     sb(`uea_loyalty_ledger?member_id=eq.${member.id}&select=type,points,note,created_at&order=created_at.desc&limit=30`),
     sb(`uea_loyalty_vouchers?member_id=eq.${member.id}&status=in.(active,applied)&select=id,code,reward_name,value_cents,status,booking_order,created_at&order=created_at.desc`),
-    sb(`uea_loyalty_review_claims?member_id=eq.${member.id}&select=status&order=created_at.desc&limit=1`)
+    sb(`uea_loyalty_review_claims?member_id=eq.${member.id}&select=status&order=created_at.desc&limit=1`),
+    sb(`uea_loyalty_bookings?member_id=eq.${member.id}&status=neq.cancelled&select=service,vehicle,sched_date,sched_window,stage,status,total_cents,points_awarded,voucher_code,voucher_used,paid_at,created_at&order=created_at.desc&limit=15`)
+      .catch(() => [])
   ]);
   const fresh = (await sb(`uea_loyalty_members?id=eq.${member.id}&select=*`))[0] || member;
   const spendCents = Number(spend);
   const { tier, next } = tierFor(cfg, spendCents);
+  const months = Number(cfg.expire_months) || 0;
+  let expiresAt = null;
+  if (months && fresh.last_activity_at && fresh.points_balance > 0) {
+    const d = new Date(fresh.last_activity_at); d.setMonth(d.getMonth() + months); expiresAt = d.toISOString();
+  }
   return {
+    expires_at: expiresAt,
+    jobs: (jobs || []).map(j => ({
+      service: j.service, vehicle: j.vehicle, date: j.sched_date || (j.paid_at || j.created_at || '').slice(0, 10),
+      window: j.status === 'open' ? j.sched_window : null,
+      status: j.status === 'paid' ? 'Paid' : (STAGE_LABEL[j.stage] || 'Booked'),
+      paid: j.status === 'paid', total_cents: j.status === 'paid' ? j.total_cents : null,
+      points: j.points_awarded || null, reward: j.voucher_used || j.voucher_code || null
+    })),
     member: {
       name: fresh.name, email: fresh.email, balance: fresh.points_balance,
       is_fleet: !!fresh.is_fleet, last_activity_at: fresh.last_activity_at,
