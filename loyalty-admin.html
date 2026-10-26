@@ -394,6 +394,18 @@ tr.mpicked td{background:var(--gold-soft)}
   .dtabs button:hover{color:var(--text)}
 }
 
+/* Text generator + promotions */
+.tgroup{margin-bottom:.55rem}
+.tgroup>span{display:block;color:var(--dim);font-size:.74rem;letter-spacing:.08em;text-transform:uppercase;margin-bottom:.3rem}
+.tgroup .row{gap:.35rem}
+.btn.sm.picked{border-color:var(--gold);color:var(--gold)}
+.gens{display:grid;gap:.5rem}
+.gen{display:block;width:100%;text-align:left;background:var(--raised-2);border:1px solid var(--edge);border-radius:10px;padding:.7rem .85rem;color:var(--text);font:inherit;font-size:.93rem;line-height:1.45;cursor:pointer}
+.gen.on{border-color:var(--gold);box-shadow:0 0 0 1px var(--gold) inset}
+.gen small{display:block;color:var(--gold);font-family:var(--head);font-size:.72rem;letter-spacing:.08em;text-transform:uppercase;margin-bottom:.25rem}
+.phone-prev{background:var(--black);border:1px solid var(--edge-strong);border-radius:16px;padding:1rem}
+.bubble{background:var(--raised-2);border-radius:14px 14px 14px 4px;padding:.65rem .8rem;white-space:pre-wrap;font-size:.93rem;line-height:1.45;max-width:100%}
+.wlist{max-height:220px;overflow:auto;font-size:.88rem;color:var(--dim);margin-top:.4rem}
 /* Overview + Books */
 .ovh{margin:1.3rem 0 .6rem;color:var(--dim);font-size:.82rem;letter-spacing:.1em;text-transform:uppercase}
 .ownstrip{border-color:rgba(107,40,150,.45)}
@@ -595,6 +607,7 @@ var NAV = [
   {grp:'Customers', roles:['owner','writer']},
   {tab:'messages', label:'Messages', roles:['owner','writer'], count:'cMsg'},
   {tab:'customers', label:'Customers', roles:['owner','writer']},
+  {tab:'promos', label:'Promotions', roles:['owner','writer']},
   {tab:'vouchers', label:'Reward vouchers', roles:['owner','writer'], count:'cVouchers'},
   {tab:'points', label:'Add points', roles:['owner']},
   {grp:'Business', roles:['owner','writer']},
@@ -829,6 +842,15 @@ function closeDrawer(){ $('#drawer').classList.add('hide'); J=null; rerender(); 
 $('#drawer').addEventListener('click', function(e){ if(e.target.id==='drawer') closeDrawer(); });
 document.addEventListener('keydown', function(e){ if(e.key==='Escape' && !$('#drawer').classList.contains('hide')) closeDrawer(); });
 
+// What the customer picked for parts at booking (website form or Shopify order).
+function partsChip(b){
+  var p=(b.details||[]).filter(function(x){ return /^parts$/i.test(x.name) && x.value; })[0];
+  if(!p) return '';
+  var v=String(p.value);
+  if(/customer|own/i.test(v)) return '<span class="chip warn" title="'+esc(v)+'">Customer\'s parts</span>';
+  if(/shop|we supply/i.test(v)) return '<span class="chip gold" title="'+esc(v)+'">We supply parts</span>';
+  return '<span class="chip purple" title="'+esc(v)+'">Parts: ask customer</span>';
+}
 function renderJob(){
   var b=J.booking, open=b.status==='open';
   var ins=J.inspection;
@@ -837,7 +859,7 @@ function renderJob(){
   if(isRole('owner')) tabs.splice(tabs.length-1,0,['costs','Job costs']);
   var h='<div class="jhead"><button class="btn ghost sm back" id="closeDrawer" aria-label="Back to list">'+(PHONE()?'‹ Back':'Close')+'</button><div class="jtitle">'+
       '<h2 style="margin:0 0 .3rem">'+esc(b.customer_name||'Customer')+'</h2>'+
-      '<div class="row" style="gap:.4rem">'+stageChip(b)+(b.order_name?'<span class="chip">'+esc(b.order_name)+'</span>':'<span class="chip">Phone job</span>')+(b.rush?'<span class="chip bad">Rush</span>':'')+
+      '<div class="row" style="gap:.4rem">'+stageChip(b)+(b.order_name?'<span class="chip">'+esc(b.order_name)+'</span>':'<span class="chip">Phone job</span>')+(b.rush?'<span class="chip bad">Rush</span>':'')+partsChip(b)+
       (J.tier&&!(J.member&&J.member.is_fleet)?'<span class="chip gold">'+esc(J.tier.name)+' member</span>':'')+(J.member&&J.member.is_fleet?'<span class="chip">Fleet</span>':'')+'</div></div></div>';
   if(open) h+=clockBar();
   if(open){
@@ -1062,7 +1084,72 @@ function saveEstimate(){
 }
 
 /* Texts tab */
-var TEMPLATES=[['confirm','Confirm appointment'],['on_way','On my way'],['estimate','Estimate ready'],['complete','Job done + payment link'],['review','Ask for a review'],['follow_up','Recommended work follow-up']];
+/* Job text library. The first version of a saved template (Settings → Text message templates) is yours;
+   the rest are alternates in different tones. "Another version" cycles through them. */
+var TONES=[['','Any tone'],['friendly','Friendly'],['pro','Professional'],['short','Short']];
+var JOB_TEXT_GROUPS=[
+  ['Before the visit',['confirm','reminder_day','need_info','reschedule']],
+  ['Day of',['on_way','late']],
+  ['Estimate & parts',['estimate','approval_nudge','parts_wait']],
+  ['After the job',['complete','payment_due','thanks','review','follow_up']]
+];
+var JOB_TEXTS={
+  confirm:{label:'Confirm appointment', saved:true, v:[
+    ['pro','Hello {first}, this confirms your {service} appointment with Upper Echelon Automotive on {date}, {window}. Reply here if anything changes.'],
+    ['short','Upper Echelon Automotive: you\'re booked for {date}, {window}. Reply with any questions.']]},
+  reminder_day:{label:'Reminder for tomorrow', v:[
+    ['friendly','Hi {first}! Quick reminder: Upper Echelon Automotive is coming out tomorrow, {date}, {window}, for your {vehicle}. Reply here if you need to change anything.'],
+    ['pro','Hello {first}, a reminder of your {service} appointment tomorrow ({date}, {window}). Please have the {vehicle} accessible with the keys handy. – Upper Echelon Automotive'],
+    ['short','Reminder: Upper Echelon Automotive tomorrow, {window}. Reply to reschedule.']]},
+  need_info:{label:'Ask for photos / info', v:[
+    ['friendly','Hi {first}, this is Upper Echelon Automotive. To get ready for your {vehicle}, could you text us a photo of any warning lights and tell us when the problem started?'],
+    ['pro','Hello {first}, before your appointment please reply with the VIN (bottom of the windshield, driver side) and current mileage of your {vehicle} so we bring the right parts.'],
+    ['short','Upper Echelon Automotive: can you text a photo of the issue on your {vehicle}? Helps us come prepared.']]},
+  reschedule:{label:'Need to reschedule', v:[
+    ['friendly','Hi {first}, it\'s Upper Echelon Automotive. We need to move your {service} appointment. What day and time works best for you? Sorry for the hassle.'],
+    ['pro','Hello {first}, due to a scheduling change we need to reschedule your {date} appointment. Please reply with a few times that work and we\'ll confirm right away. – Upper Echelon Automotive'],
+    ['short','Upper Echelon Automotive: we need to reschedule your {date} visit. What time works for you?']]},
+  on_way:{label:'On my way', eta:true, saved:true, v:[
+    ['pro','Hello {first}, your technician {tech} is en route and should arrive in about {eta}. – Upper Echelon Automotive'],
+    ['short','{tech} from Upper Echelon Automotive is on the way. ETA {eta}.']]},
+  late:{label:'Running late', eta:true, v:[
+    ['friendly','Hi {first}, this is {tech} with Upper Echelon Automotive. I\'m running a little behind on the job before yours. New arrival: {eta}. Sorry about that!'],
+    ['pro','Hello {first}, we\'re running behind schedule. Your technician will now arrive in about {eta}. If that no longer works, reply and we\'ll reschedule. – Upper Echelon Automotive'],
+    ['short','Upper Echelon Automotive is running late. New ETA: {eta}. Sorry!']]},
+  estimate:{label:'Estimate ready', saved:true, v:[
+    ['pro','Hello {first}, the estimate for your {vehicle} is ready. You can approve or decline each item here: {estimate_link}'],
+    ['short','Your Upper Echelon Automotive estimate is ready: {estimate_link}']]},
+  approval_nudge:{label:'Estimate still waiting', link:true, v:[
+    ['friendly','Hi {first}, just checking in. Your estimate for the {vehicle} is still waiting for your OK: {estimate_link} Any questions, reply here.'],
+    ['pro','Hello {first}, your estimate is awaiting approval. We can schedule the work as soon as you approve: {estimate_link}'],
+    ['short','Still need your OK on the {vehicle} estimate: {estimate_link}']]},
+  parts_wait:{label:'Parts ordered', v:[
+    ['friendly','Hi {first}, the parts for your {vehicle} are ordered. We\'ll text you as soon as they arrive to set up a time to finish the job.'],
+    ['pro','Hello {first}, the parts for your {service} have been ordered. We will contact you to schedule installation once they arrive. – Upper Echelon Automotive'],
+    ['short','Upper Echelon Automotive: parts ordered for your {vehicle}. We\'ll text when they\'re in.']]},
+  complete:{label:'Job done + payment link', saved:true, v:[
+    ['pro','Hello {first}, work on your {vehicle} is complete. Your total is {total}. You can pay securely here: {pay_link} Thank you for your business.'],
+    ['short','Your {vehicle} is done! Total {total}. Pay here: {pay_link}']]},
+  payment_due:{label:'Payment reminder', v:[
+    ['friendly','Hi {first}, friendly reminder from Upper Echelon Automotive: your balance of {total} for the {vehicle} is still open. You can pay here: {pay_link}'],
+    ['pro','Hello {first}, our records show an open balance of {total} for your recent service. Please pay at {pay_link} or call {shop_phone} with any questions.'],
+    ['short','Reminder: {total} balance due to Upper Echelon Automotive. Pay here: {pay_link}']]},
+  thanks:{label:'Thank you', v:[
+    ['friendly','Thanks again for choosing Upper Echelon Automotive, {first}! If anything with the {vehicle} doesn\'t feel right, just reply here.'],
+    ['pro','Hello {first}, thank you for your business. If you have any questions about the work on your {vehicle}, please reply or call {shop_phone}.'],
+    ['short','Thanks for choosing Upper Echelon Automotive, {first}! Reply anytime with questions.']]},
+  review:{label:'Ask for a review', saved:true, v:[
+    ['pro','Hello {first}, thank you for choosing Upper Echelon Automotive. We would appreciate a short Google review of your experience: {review_link}'],
+    ['short','Thanks {first}! Mind leaving us a quick review? {review_link}']]},
+  follow_up:{label:'Recommended work follow-up', saved:true, v:[
+    ['friendly','Hi {first}, it\'s Upper Echelon Automotive checking in on your {vehicle}. Last time we noted: {recommended}. Want to take care of it before it turns into a bigger repair?'],
+    ['short','Still need {recommended} on your {vehicle}? Reply and we\'ll set it up.']]}
+};
+function jobVersions(k, tpls){
+  var t=JOB_TEXTS[k], out=[]; if(!t) return out;
+  if(t.saved && tpls[k]) out.push(['friendly', tpls[k]]);
+  return out.concat(t.v);
+}
 function tabTexts(){
   var b=J.booking, v=J.sms_vars, tpls=J.shop.sms_templates||{};
   var sent=(J.events||[]).filter(function(e){ return e.kind==='sms'; });
@@ -1070,29 +1157,40 @@ function tabTexts(){
   if(!J.sms_ready) h+='<div class="steel panel sec" style="border-color:var(--warn)">Texting isn\'t connected yet. Add <b>TEXTBELT_KEY</b> on Render to send texts from here. Until then, use <a href="'+smsHref(b.phone)+'">your phone</a>.</div>';
   if(!b.phone) h+='<div class="steel panel sec" style="border-color:var(--warn)">No phone number on this job. Add one on the Job tab.</div>';
   h+='<div class="steel panel sec"><h3>Send a text to '+esc(b.customer_name||'customer')+(b.phone?' <span class="dim">('+esc(b.phone)+')</span>':'')+'</h3>'+
-    '<div class="row" style="gap:.35rem;margin-bottom:.7rem">'+TEMPLATES.map(function(t){ return '<button type="button" class="btn ghost sm" data-tpl="'+t[0]+'">'+t[1]+'</button>'; }).join('')+'</div>'+
+    JOB_TEXT_GROUPS.map(function(g){ return '<div class="tgroup"><span>'+g[0]+'</span><div class="row">'+g[1].map(function(k){ return '<button type="button" class="btn ghost sm" data-tpl="'+k+'">'+JOB_TEXTS[k].label+'</button>'; }).join('')+'</div></div>'; }).join('')+
+    '<div class="row" style="gap:.5rem;margin:.6rem 0 .7rem"><div class="seg" id="toneSeg">'+TONES.map(function(t){ return '<button type="button" data-tone="'+t[0]+'" class="'+(t[0]===(S.tone||'')?'on good':'')+'">'+t[1]+'</button>'; }).join('')+'</div>'+
+      '<button type="button" class="btn ghost sm" id="tplNext" disabled>↻ Another version</button></div>'+
     '<div id="etaRow" class="field hide"><label>Arrival time to tell them</label><input id="eta" placeholder="e.g. 20 minutes, or 10:45 AM"></div>'+
     '<textarea id="smsText" rows="4" placeholder="Pick a template or write your own message"></textarea>'+
     '<div class="row" style="justify-content:space-between;margin-top:.5rem"><span class="help" id="smsCount"></span><button class="btn" id="smsSend"'+(b.phone&&J.sms_ready?'':' disabled')+'>Send text</button></div></div>';
   h+='<div class="steel panel"><h3>Texts sent</h3>'+(sent.length?sent.map(function(e){ return '<div class="ev"><div class="k">'+when(e.at)+'<br>'+esc(e.by_name||'')+'</div><div>'+esc(e.text)+'</div></div>'; }).join(''):'<div class="dim">No texts sent from the portal yet.</div>')+'</div>';
   $('#dbody').innerHTML=h;
-  var kind=null;
-  function setTpl(k){
-    kind=k; $('#etaRow').classList.toggle('hide', k!=='on_way');
+  var kind=null, ver=0;
+  function versions(k){ var all=jobVersions(k,tpls), tone=S.tone||''; var f=tone?all.filter(function(x){ return x[0]===tone; }):all; return f.length?f:all; }
+  function setTpl(k, keepVer){
+    if(k!==kind||!keepVer) ver=keepVer?ver:0;
+    kind=k; var t=JOB_TEXTS[k]||{}; $('#etaRow').classList.toggle('hide', !t.eta);
+    $$('[data-tpl]').forEach(function(b){ b.classList.toggle('picked', b.dataset.tpl===k); });
+    var list=versions(k); ver=ver%list.length;
+    $('#tplNext').disabled=list.length<2; $('#tplNext').textContent='↻ Another version'+(list.length>1?' ('+(ver+1)+' of '+list.length+')':'');
     var vars=Object.assign({}, v, {eta: $('#eta').value || '[arrival time]'});
     if(k==='estimate' && !J.estimate_link){ vars.estimate_link='[link is created when you send]'; }
-    if(k==='complete' && !J.shop.payment_link) toast('Add your payment portal link in Settings so it appears in this text', true);
-    $('#smsText').value=fill(tpls[k], vars); count();
+    if(k==='approval_nudge' && !J.estimate_link){ toast('Send the estimate first (Estimate tab), then nudge them', true); }
+    if((k==='complete'||k==='payment_due') && !J.shop.payment_link) toast('Add your payment portal link in Settings so it appears in this text', true);
+    if(k==='review' && !J.shop.google_review_url) toast('Add your Google review link in Settings so it appears in this text', true);
+    $('#smsText').value=fill(list[ver][1], vars); count();
   }
+  $('#tplNext').addEventListener('click', function(){ if(!kind) return; ver++; setTpl(kind, true); });
+  $$('[data-tone]').forEach(function(b){ b.addEventListener('click', function(){ S.tone=b.dataset.tone; $$('[data-tone]').forEach(function(x){ x.className=x===b?'on good':''; }); if(kind) setTpl(kind); }); });
   function count(){ var l=$('#smsText').value.length; $('#smsCount').textContent=l+' characters'+(l>160?' (sends as '+Math.ceil(l/153)+' texts)':''); }
   $$('[data-tpl]').forEach(function(btn){ btn.addEventListener('click', function(){ setTpl(btn.dataset.tpl); }); });
-  $('#eta').addEventListener('input', function(){ if(kind==='on_way') setTpl('on_way'); });
+  $('#eta').addEventListener('input', function(){ if(kind&&(JOB_TEXTS[kind]||{}).eta) setTpl(kind, true); });
   $('#smsText').addEventListener('input', count);
-  if(J.preset){ setTpl(J.preset); J.preset=null; if(kind==='on_way') $('#eta').focus(); }
+  if(J.preset){ setTpl(J.preset); J.preset=null; if((JOB_TEXTS[kind]||{}).eta) $('#eta').focus(); }
   $('#smsSend').addEventListener('click', function(){
     var text=$('#smsText').value.trim(), btn=this;
     if(!text) return toast('Write a message first', true);
-    if(/\[arrival time\]|\[link is created/.test(text)) return toast(kind==='on_way'?'Enter the arrival time first':'Send estimates from the Estimate tab', true);
+    if(/\[arrival time\]|\[link is created/.test(text)) return toast((JOB_TEXTS[kind]||{}).eta?'Enter the arrival time first':'Send estimates from the Estimate tab', true);
     if(kind==='estimate'){ busy(btn,true,'Sending…'); api('/admin/booking/'+b.id+'/estimate/send',{method:'POST',body:{via:'sms',text:J.estimate_link?text:null}}).then(function(){ toast('Estimate texted'); openJob(b.id,'texts'); }).catch(function(e){ toast(e.message,true); busy(btn,false); }); return; }
     busy(btn,true,'Sending…');
     api('/admin/booking/'+b.id+'/sms',{method:'POST',body:{text:text,kind:kind}}).then(function(){ toast('Text sent'); openJob(b.id,'texts'); }).catch(function(e){ toast(e.message,true); busy(btn,false); });
@@ -1536,6 +1634,157 @@ VIEWS.followups = function(){
     $$('[data-fsnooze]').forEach(function(b){ b.addEventListener('click', function(){ api('/admin/booking/'+b.dataset.fsnooze+'/followup',{method:'POST',body:{snooze_days:30}}).then(function(){ toast('Moved 30 days out'); rerender(); }).catch(function(e){ toast(e.message,true); }); }); });
     $$('[data-fclose]').forEach(function(b){ b.addEventListener('click', function(){ var note=prompt('Close this follow-up? Reason (optional):',''); if(note===null) return; api('/admin/booking/'+b.dataset.fclose+'/followup',{method:'POST',body:{note:note}}).then(function(){ toast('Follow-up closed'); rerender(); }).catch(function(e){ toast(e.message,true); }); }); });
   }).catch(fail);
+};
+
+/* ───────── PROMOTIONS (mass texts) ───────── */
+var PROMO_TYPES={
+  discount:{label:'Discount (% or $ off)', a:['Discount','20% off'], s:['On','brake service'], c:{
+    friendly:['Hi {first}! Upper Echelon Automotive is taking {amt} off {svc}, and we come to you.','Hey {first}, it\'s Upper Echelon Automotive. Right now you can save {amt} on {svc}, done at your home or office.'],
+    urgent:['{first}, this one won\'t last: {amt} off {svc} from Upper Echelon Automotive.'],
+    pro:['Hello {first}, Upper Echelon Automotive is offering {amt} off {svc} for a limited time.'],
+    short:['Upper Echelon Automotive: {amt} off {svc}.']}},
+  free:{label:'Free add-on', a:['What\'s free','a full vehicle inspection'], s:['With','any brake or battery job'], c:{
+    friendly:['Hi {first}! Book {svc} with Upper Echelon Automotive and get {amt} free.'],
+    urgent:['{first}, limited time: get {amt} FREE with {svc} from Upper Echelon Automotive.'],
+    pro:['Hello {first}, for a limited time Upper Echelon Automotive includes {amt} at no charge with {svc}.'],
+    short:['Free {amt} with {svc}. Upper Echelon Automotive.']}},
+  seasonal:{label:'Seasonal service', a:['Price (optional)','$49'], s:['Service','A/C performance check'], c:{
+    friendly:['Hi {first}! It\'s that time of year. Upper Echelon Automotive is doing {svc}{for_amt}, right in your driveway.'],
+    urgent:['{first}, beat the rush: {svc}{for_amt} from Upper Echelon Automotive. Spots are filling up.'],
+    pro:['Hello {first}, Upper Echelon Automotive is now scheduling {svc}{for_amt}. We come to your home or workplace.'],
+    short:['{svc}{for_amt}. Upper Echelon Automotive comes to you.']}},
+  openings:{label:'Open slots', a:null, s:['When','this week'], c:{
+    friendly:['Hi {first}, Upper Echelon Automotive has a few openings {svc}. Anything your vehicle needs? We come to you.'],
+    urgent:['{first}, last-minute openings {svc}! Grab one before they\'re gone. Upper Echelon Automotive.'],
+    pro:['Hello {first}, Upper Echelon Automotive has appointment availability {svc}.'],
+    short:['Openings {svc}. Upper Echelon Automotive comes to you.']}},
+  holiday:{label:'Holiday special', a:['Deal','15% off any repair'], s:['Holiday','Black Friday'], c:{
+    friendly:['Happy {svc}, {first}! Upper Echelon Automotive is celebrating with {amt}.'],
+    urgent:['{svc} deal from Upper Echelon Automotive: {amt}. Limited spots, {first}!'],
+    pro:['Hello {first}, for {svc}, Upper Echelon Automotive is offering {amt}.'],
+    short:['{svc} special: {amt}. Upper Echelon Automotive.']}},
+  winback:{label:'We miss you', a:['Comeback offer','15% off your next visit'], s:null, c:{
+    friendly:['Hi {first}, we miss you at Upper Echelon Automotive! Here\'s {amt} to welcome you back.'],
+    urgent:['{first}, your welcome-back offer from Upper Echelon Automotive: {amt}. Don\'t let it slip by!'],
+    pro:['Hello {first}, it has been a while since your last service with Upper Echelon Automotive. Please enjoy {amt}.'],
+    short:['We miss you, {first}! {amt} from Upper Echelon Automotive.']}},
+  referral:{label:'Refer a friend', a:['Each person gets','$25 off'], s:null, c:{
+    friendly:['Hi {first}! Know someone who needs a mechanic? Send them to Upper Echelon Automotive and you both get {amt}. Have them mention your name when they book.'],
+    urgent:['{first}, refer a friend this month and you each get {amt} from Upper Echelon Automotive. Just have them mention your name.'],
+    pro:['Hello {first}, refer a friend to Upper Echelon Automotive and you will both receive {amt}. Ask them to mention your name when booking.'],
+    short:['Refer a friend to Upper Echelon Automotive, you both get {amt}.']}},
+  points:{label:'Bonus reward points', a:['Bonus','double reward points'], s:['On','any service'], c:{
+    friendly:['Hi {first}! Earn {amt} on {svc} with Upper Echelon Automotive. You have {points} points right now.'],
+    urgent:['{first}, {amt} on {svc} for a limited time! Your balance: {points} points.'],
+    pro:['Hello {first}, Upper Echelon Automotive rewards members earn {amt} on {svc}. Current balance: {points} points.'],
+    short:['{amt} on {svc} at Upper Echelon Automotive. You have {points} pts.']}},
+  fleet:{label:'Fleet offer', a:['Offer','10% off preventive maintenance'], s:['For','your work trucks'], c:{
+    friendly:['Hi {first}, Upper Echelon Automotive is offering {amt} for {svc}. We service on-site so your vehicles stay on the job.'],
+    urgent:['{first}, fleet special this month: {amt} for {svc}. On-site, no downtime driving to a shop.'],
+    pro:['Hello {first}, Upper Echelon Automotive provides on-site service for {svc}. Fleet customers receive {amt}.'],
+    short:['Fleet deal: {amt} for {svc}. On-site service.']}},
+  custom:{label:'Write my own', a:null, s:null, c:{}}
+};
+var TONE_NAME={friendly:'Friendly',urgent:'Urgent',pro:'Professional',short:'Short'};
+function promoEnd(iso){ if(!iso) return ''; var p=iso.split('-'); return new Date(Date.UTC(+p[0],+p[1]-1,+p[2])).toLocaleDateString('en-US',{month:'short',day:'numeric',timeZone:'UTC'}); }
+function promoGenerate(P){
+  var T=PROMO_TYPES[P.type]; if(!T||P.type==='custom') return [];
+  var amt=(P.amt||(T.a?T.a[1]:'')).trim(), svc=(P.svc||(T.s?T.s[1]:'')).trim();
+  var out=[];
+  ['friendly','urgent','pro','short'].forEach(function(tone){ (T.c[tone]||[]).forEach(function(core){
+    var t=core.replace(/\{amt\}/g,amt).replace(/\{svc\}/g,svc).replace(/\{for_amt\}/g,amt?' for '+amt:'');
+    if(P.code) t+=tone==='short'?' Code '+P.code.toUpperCase()+'.':' Use code '+P.code.toUpperCase()+'.';
+    if(P.end) t+=tone==='short'?' Ends '+promoEnd(P.end)+'.':' Good through '+promoEnd(P.end)+'.';
+    if(P.link) t+=tone==='short'?' '+P.link:' Book: '+P.link;
+    else t+=tone==='short'?' Reply to book.':' Reply here or call {shop_phone} to book.';
+    out.push({tone:tone, text:t.charAt(0).toUpperCase()+t.slice(1)});
+  }); });
+  return out;
+}
+VIEWS.promos = function(){
+  var P=S.promo||(S.promo={type:'discount',amt:'',svc:'',end:'',code:'',link:'https://ueauto.store',useLink:true,msg:'',pick:-1,seg:'all',vehicle:'',service:''});
+  var h='<h2>Promotions</h2><p class="dim" style="margin:.2rem 0 1rem">Text a deal to your customers. Pick the kind of promotion, fill in the details, choose a message, then pick who gets it. Customers who replied STOP are never included.</p>'+
+    '<div class="grid g2 sec" style="align-items:start"><div>'+
+    '<form class="steel panel sec" id="pForm"><h3>1. The deal</h3>'+
+      '<div class="field"><label>Kind of promotion</label><select name="type">'+Object.keys(PROMO_TYPES).map(function(k){ return '<option value="'+k+'"'+(k===P.type?' selected':'')+'>'+PROMO_TYPES[k].label+'</option>'; }).join('')+'</select></div>'+
+      '<div class="grid g2" id="pFields"></div>'+
+      '<div class="grid g2">'+fld('Ends (optional)','end',P.end,'','date')+fld('Promo code (optional)','code',P.code)+'</div>'+
+      '<label class="row" style="color:var(--text);font-family:var(--body)"><input type="checkbox" name="useLink"'+(P.useLink?' checked':'')+'> Include a booking link</label>'+
+      '<div id="pLinkF">'+fld('Link','link',P.link)+'<div class="help" style="margin-top:-.5rem">Textbelt only sends links after your key is approved for them. If texts fail, untick this and customers can reply instead.</div></div></form>'+
+    '<div class="steel panel sec" id="pGenWrap"><h3>2. Pick a message</h3><div class="gens" id="pGens"></div></div>'+
+    '<div class="steel panel sec"><h3>3. Fine-tune</h3><textarea id="pMsg" rows="5" maxlength="520" placeholder="Pick a message above or write your own. Use {first} for their first name.">'+esc(P.msg)+'</textarea>'+
+      '<div class="help">Personalize with <b>{first}</b>, <b>{name}</b>, <b>{points}</b>, <b>{shop_phone}</b>, <b>{rewards_link}</b>. “Reply STOP to opt out.” is always added to promotions. <span id="pCount"></span></div></div>'+
+    '</div><div>'+
+    '<div class="steel panel sec"><h3>4. Who gets it</h3><div class="field"><label>Customers</label><select id="pSeg"></select></div>'+
+      '<div class="grid g2"><div class="field"><label>Vehicle contains (optional)</label><input id="pVeh" placeholder="Ford, F-150, Silverado…" value="'+esc(P.vehicle)+'"></div>'+
+      '<div class="field"><label>Past service contains (optional)</label><input id="pSvc" placeholder="brake, battery, A/C…" value="'+esc(P.service)+'"></div></div>'+
+      '<div id="pAud" class="dim">Counting…</div></div>'+
+    '<div class="steel panel sec"><h3>Preview</h3><div class="phone-prev"><div class="bubble" id="pPrev">—</div></div><div class="help" id="pPrevWho"></div></div>'+
+    '<div class="steel panel sec"><div id="pWin"></div><div class="row" style="gap:.5rem"><button class="btn" id="pSend" disabled>Send</button><button class="btn ghost" id="pTest">Text me a test</button></div>'+
+      '<p class="help">Only text customers who agreed to hear about deals from you. Promotions go out 9 AM–9 PM Mon–Sat and noon–9 PM Sunday (Central).</p><div id="bOut" style="margin-top:.6rem"></div></div>'+
+    '<div class="steel panel" id="pHist"><h3>Past promotions</h3><div class="dim">Loading…</div></div>'+
+    '</div></div>';
+  $('#view').innerHTML=h;
+  var f=$('#pForm'), A=null;
+  var vars=function(){ var m=A&&A.members[0]; return {first:m?String(m.name||'there').trim().split(/\s+/)[0]:'Alex', name:m?m.name||'':'Alex Smith', points:m?n(m.points_balance):'250', shop_phone:(S.settings&&S.settings.shop_phone)||'251-289-0740', rewards_link:'https://ueauto.store/pages/rewards'}; };
+  var preview=function(){
+    var raw=$('#pMsg').value.trim(); P.msg=raw;
+    var t=raw?fill(raw, vars())+' Reply STOP to opt out.':'';
+    $('#pPrev').textContent=t||'—';
+    $('#pPrevWho').textContent=A&&A.members[0]?'As '+(A.members[0].name||'the first customer')+' will see it.':'';
+    var segs=t.length>160?Math.ceil(t.length/153):1;
+    $('#pCount').textContent=t.length+' characters'+(t.length>160?' · '+segs+' text segments each':'');
+    var c=A?A.count:0, can=c&&raw&&A.window.ok&&A.sms_ready;
+    $('#pSend').disabled=!can;
+    $('#pSend').textContent='Send to '+n(c)+' customer'+(c===1?'':'s')+(c?' (about $'+(c*segs*0.01).toFixed(2)+')':'');
+  };
+  var fields=function(){
+    var T=PROMO_TYPES[P.type];
+    $('#pFields').innerHTML=(T.a?fld(T.a[0],'amt',P.amt,'','text'):'')+(T.s?fld(T.s[0],'svc',P.svc,'','text'):'');
+    if(fe(f,'amt')) fe(f,'amt').placeholder=T.a[1]; if(fe(f,'svc')) fe(f,'svc').placeholder=T.s[1];
+    $$('#pFields input').forEach(function(i){ i.addEventListener('input', function(){ P[i.name]=i.value; gens(); }); });
+  };
+  var gens=function(){
+    P.link=fe(f,'link').value.trim(); P.useLink=fe(f,'useLink').checked; $('#pLinkF').classList.toggle('hide',!P.useLink);
+    var L=promoGenerate({type:P.type, amt:P.amt, svc:P.svc, end:P.end, code:P.code, link:P.useLink?P.link:''});
+    $('#pGenWrap').classList.toggle('hide', !L.length);
+    $('#pGens').innerHTML=L.map(function(g,i){ return '<button type="button" class="gen'+(i===P.pick?' on':'')+'" data-gen="'+i+'"><small>'+TONE_NAME[g.tone]+'</small>'+esc(fill(g.text, vars()))+'</button>'; }).join('');
+    $$('#pGens [data-gen]').forEach(function(b){ b.addEventListener('click', function(){ P.pick=+b.dataset.gen; $('#pMsg').value=L[P.pick].text; gens(); preview(); }); });
+    if(P.pick>-1 && L[P.pick]){ $('#pMsg').value=L[P.pick].text; }
+    preview();
+  };
+  fe(f,'type').addEventListener('change', function(){ P.type=this.value; P.amt=''; P.svc=''; P.pick=P.type==='custom'?-1:0; if(P.type==='custom') $('#pMsg').value=''; fields(); gens(); if(P.type==='winback'){ $('#pSeg').value='inactive'; P.seg='inactive'; aud(); } if(P.type==='fleet'){ $('#pSeg').value='fleet'; P.seg='fleet'; aud(); } if(P.type==='points'){ $('#pSeg').value='points'; P.seg='points'; aud(); } });
+  ['end','code','link'].forEach(function(k){ fe(f,k).addEventListener('input', function(){ P[k]=this.value; gens(); }); });
+  fe(f,'useLink').addEventListener('change', gens);
+  $('#pMsg').addEventListener('input', function(){ P.pick=-1; $$('#pGens .gen').forEach(function(g){ g.classList.remove('on'); }); preview(); });
+  var aud=function(){
+    P.vehicle=$('#pVeh').value.trim(); P.service=$('#pSvc').value.trim();
+    api('/admin/promo/audience?seg='+P.seg+'&vehicle='+encodeURIComponent(P.vehicle)+'&service='+encodeURIComponent(P.service)).then(function(d){
+      A=d;
+      if(!$('#pSeg').options.length){ $('#pSeg').innerHTML=Object.keys(d.segments).map(function(k){ return '<option value="'+k+'">'+esc(d.segments[k])+'</option>'; }).join(''); $('#pSeg').value=P.seg; }
+      $('#pAud').innerHTML='<b style="color:var(--text);font-size:1.1rem">'+n(d.count)+'</b> customer'+(d.count===1?'':'s')+' will get this.'+(d.opted_out?' <span class="dim">'+n(d.opted_out)+(d.opted_out===1?' customer who opted out is':' customers who opted out are')+' left out.</span>':'')+
+        (d.count?' <a href="#" id="pWho">See who</a><div class="wlist hide" id="pWhoL">'+d.members.slice(0,300).map(function(m){ return esc(m.name||m.phone||'Customer'); }).join(', ')+(d.count>300?' and '+(d.count-300)+' more':'')+'</div>':'');
+      if($('#pWho')) $('#pWho').addEventListener('click', function(e){ e.preventDefault(); $('#pWhoL').classList.toggle('hide'); });
+      $('#pWin').innerHTML=!d.sms_ready?'<div class="warnbox steel panel" style="margin-bottom:.6rem">Texting isn\'t connected. Add TEXTBELT_KEY on Render first.</div>':
+        d.window.ok?'':'<div class="warnbox steel panel" style="margin-bottom:.6rem">'+esc(d.window.msg)+'</div>';
+      gens();
+    }).catch(function(e){ $('#pAud').innerHTML='<span class="minus">'+esc(e.message)+'</span>'; });
+  };
+  var at; $('#pSeg').addEventListener('change', function(){ P.seg=this.value; aud(); });
+  [$('#pVeh'),$('#pSvc')].forEach(function(i){ i.addEventListener('input', function(){ clearTimeout(at); at=setTimeout(aud,350); }); });
+  $('#pTest').addEventListener('click', function(){ var msg=$('#pMsg').value.trim(), btn=this; if(!msg) return toast('Write or pick a message first',true);
+    busy(btn,true,'Sending…'); api('/admin/promo/test',{method:'POST',body:{message:msg}}).then(function(r){ busy(btn,false); toast('Test sent to '+r.to); }).catch(function(e){ busy(btn,false); toast(e.message,true); }); });
+  $('#pSend').addEventListener('click', function(){
+    var msg=$('#pMsg').value.trim(), btn=this; if(!msg||!A||!A.count) return;
+    if(/\{(amt|svc|for_amt)\}/.test(msg)) return toast('Fill in the deal details first',true);
+    if(!confirm('Text this promotion to '+A.count+' customer'+(A.count===1?'':'s')+'? This can\'t be undone.')) return;
+    var campaign=todayIso().replace(/-/g,'')+'-'+Math.random().toString(36).slice(2,7);
+    runBulk('text',{message:msg,promo:true,campaign:campaign},A.members,btn).then(function(){ hist(); preview(); }).catch(function(e){ busy(btn,false); toast(e.message,true); });
+  });
+  var hist=function(){ api('/admin/promo/history').then(function(d){
+    $('#pHist').innerHTML='<h3>Past promotions</h3>'+(d.campaigns.length?d.campaigns.map(function(c){ return '<div class="ev"><div class="k">'+when(c.first_at)+'<br>'+n(c.sent)+' sent'+(c.sent_by?'<br>'+esc(c.sent_by):'')+'</div><div>'+esc(c.sample)+'</div></div>'; }).join(''):'<div class="dim">No promotions sent yet.</div>');
+  }).catch(function(){ $('#pHist').innerHTML='<h3>Past promotions</h3><div class="dim">Couldn\'t load history.</div>'; }); };
+  fields(); if(P.pick<0&&!P.msg&&P.type!=='custom') P.pick=0; gens(); aud(); hist();
 };
 
 /* ───────── CUSTOMERS ───────── */
