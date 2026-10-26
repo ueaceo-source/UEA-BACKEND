@@ -1778,7 +1778,8 @@ VIEWS.promos = function(){
     var msg=$('#pMsg').value.trim(), btn=this; if(!msg||!A||!A.count) return;
     if(/\{(amt|svc|for_amt)\}/.test(msg)) return toast('Fill in the deal details first',true);
     if(!confirm('Text this promotion to '+A.count+' customer'+(A.count===1?'':'s')+'? This can\'t be undone.')) return;
-    var campaign=todayIso().replace(/-/g,'')+'-'+Math.random().toString(36).slice(2,7);
+    if(!P.campaign||P.campaignMsg!==msg){ P.campaign=todayIso().replace(/-/g,'')+'-'+Math.random().toString(36).slice(2,7); P.campaignMsg=msg; }
+    var campaign=P.campaign;
     runBulk('text',{message:msg,promo:true,campaign:campaign},A.members,btn).then(function(){ hist(); preview(); }).catch(function(e){ busy(btn,false); toast(e.message,true); });
   });
   var hist=function(){ api('/admin/promo/history').then(function(d){
@@ -1922,21 +1923,26 @@ function bulkSheet(kind){
   }); });
 }
 function runBulk(action, payload, sel, btn, quiet){
-  var ids=sel.map(function(m){ return m.id; }), out=$('#bOut'), chunks=[], all=[];
-  for(var i=0;i<ids.length;i+=action==='text'?20:50) chunks.push(ids.slice(i,i+(action==='text'?20:50)));
+  var ids=sel.map(function(m){ return m.id; }), out=$('#bOut'), chunks=[], all=[], stopped=null;
+  for(var i=0;i<ids.length;i+=action==='text'?10:50) chunks.push(ids.slice(i,i+(action==='text'?10:50)));
   busy(btn,true,'Working… 0 of '+ids.length);
   var step=function(k){
     if(k>=chunks.length) return Promise.resolve();
     return api('/admin/members/bulk',{method:'POST',body:Object.assign({action:action,ids:chunks[k]},payload)}).then(function(r){
-      all=all.concat(r.results); if(btn) btn.textContent='Working… '+Math.min(ids.length,all.length)+' of '+ids.length; return step(k+1);
+      all=all.concat(r.results); if(btn) btn.textContent='Working… '+Math.min(ids.length,all.length)+' of '+ids.length;
+      if(r.stopped){ stopped=r.stopped; var byId={}; sel.forEach(function(m){ byId[m.id]=m; });
+        chunks.slice(k+1).forEach(function(c){ c.forEach(function(id){ var m=byId[id]||{}; all.push({id:id,name:m.name||m.phone||'Customer',ok:false,msg:'Not sent: Textbelt limit reached'}); }); });
+        return; }
+      return step(k+1);
     });
   };
   return step(0).then(function(){
     busy(btn,false);
-    var ok=all.filter(function(r){ return r.ok; }), bad=all.filter(function(r){ return !r.ok; });
+    var had=all.filter(function(r){ return r.already; }), ok=all.filter(function(r){ return r.ok&&!r.already; }), bad=all.filter(function(r){ return !r.ok; });
     var label={text:'texted',points:'updated',reminder:'reminders added',fleet_on:'made fleet',fleet_off:'fleet removed',optout_on:'marked do not text',optout_off:'texts allowed'}[action]||'done';
     toast(ok.length+' '+label+(bad.length?', '+bad.length+' skipped':''));
-    if(out&&!quiet) out.innerHTML='<div class="steel panel"><b class="plus">✓ '+ok.length+' '+label+'</b>'+(bad.length?'<div style="margin-top:.5rem"><b class="minus">'+bad.length+' skipped</b><ul style="margin:.3rem 0 0 1rem;padding:0">'+bad.map(function(r){ return '<li>'+esc(r.name)+': <span class="dim">'+esc(r.msg||'error')+'</span></li>'; }).join('')+'</ul></div>':'')+'</div>';
+    if(out&&!quiet) out.innerHTML=(stopped?'<div class="steel panel warnbox" style="margin-bottom:.6rem"><b>Sending stopped.</b> '+esc(stopped)+(action==='text'&&payload.promo?' Press <b>Send</b> again later with the same message and it only goes to customers who missed it.':'')+'</div>':'')+
+      '<div class="steel panel"><b class="plus">✓ '+ok.length+' '+label+'</b>'+(had.length?' <span class="dim">· '+had.length+' already had it</span>':'')+(bad.length?'<div style="margin-top:.5rem"><b class="minus">'+bad.length+' skipped</b><ul style="margin:.3rem 0 0 1rem;padding:0">'+bad.map(function(r){ return '<li>'+esc(r.name)+': <span class="dim">'+esc(r.msg||'error')+'</span></li>'; }).join('')+'</ul></div>':'')+'</div>';
     else if(out&&quiet) out.innerHTML+='<div class="dim" style="margin-top:.4rem">Notification texts: '+ok.length+' sent'+(bad.length?', '+bad.length+' skipped':'')+'.</div>';
     loadMembers();
   }).catch(function(e){ busy(btn,false); toast(e.message,true); if(out) out.innerHTML='<div class="minus">'+esc(e.message)+(all.length?' ('+all.filter(function(r){ return r.ok; }).length+' finished before the error)':'')+'</div>'; });
