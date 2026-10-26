@@ -4,8 +4,9 @@
 // server.js mounts it at /slots.
 //
 // What it does:
-//   GET  /slots/taken          → which date/times are full (the website greys them out)
-//   POST /slots/hold           → reserves a time when a customer confirms a booking
+//   GET  /slots/windows        → the 2-hour arrival windows and how full each one is
+//   GET  /slots/taken          → older hourly view, kept so an older website copy keeps working
+//   POST /slots/hold           → reserves a window (or a run of windows for long jobs)
 //   POST /slots/cancel         → the website frees its own hold if checkout fails
 //   GET  /slots/admin          → owner page: see reserved times and release no-shows
 //
@@ -13,7 +14,10 @@
 //   SUPABASE_URL               already set
 //   SUPABASE_SERVICE_KEY       already set (SUPABASE_SERVICE_ROLE_KEY also works)
 //   LOYALTY_ADMIN_PASSWORD     owner password, same one the service desk uses
-//   SLOT_CAPACITY              optional, bookings allowed per time slot (default 1)
+//   SLOT_CAPACITY              optional fallback for jobs per window (desk Settings wins)
+//
+// Arrival windows and "Jobs per time window" come from the service desk:
+// Settings → Shop. Change them there and the website follows within a minute.
 // ============================================================================
 const express = require('express');
 const crypto = require('crypto');
@@ -35,6 +39,67 @@ const SB_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SER
 const ADMIN_PASSWORD = process.env.LOYALTY_ADMIN_PASSWORD || '';
 const supabase = SB_URL && SB_KEY ? createClient(SB_URL, SB_KEY, { auth: { persistSession: false } }) : null;
 
+// ── Arrival windows (from desk Settings) ────────────────────────────────────
+const OLD_DEFAULT_WINDOWS = ['8–10 AM', '10 AM–12 PM', '12–2 PM', '2–4 PM', '4–6 PM'];
+const DEFAULT_WINDOWS = ['8–10 AM', '10 AM–12 PM', '12–2 PM', '2–4 PM', '4–6 PM', '6–8 PM', '8–10 PM'];
+const WEEKDAY_START_MIN = 9 * 60;   // Monday–Friday, windows that start before 9 AM aren't offered online
+const MAX_SPAN = 3;                 // a long job can hold up to 3 windows in a row
+
+// "8–10 AM", "10 AM–12 PM", "12:30–2:30 PM" → { label, start, end } in minutes after midnight.
+function parseWindow(label) {
+  const m = /^\s*(\d{1,2})(?::(\d{2}))?\s*(AM|PM)?\s*[–—-]\s*(\d{1,2})(?::(\d{2}))?\s*(AM|PM)\s*$/i.exec(String(label || ''));
+  if (!m) return null;
+  const to24 = (h, mer) => (Number(h) % 12) + (/pm/i.test(mer) ? 12 : 0);
+  const end = to24(m[4], m[6]) * 60 + Number(m[5] || 0);
+  let start = to24(m[1], m[3] || m[6]) * 60 + Number(m[2] || 0);
+  if (!m[3] && start >= end) start = to24(m[1], 'AM') * 60 + Number(m[2] || 0);
+  if (start >= end) return null;
+  return { label: String(label).trim(), start, end };
+}
+let winCache = { at: 0, data: null };
+async function windowSettings() {
+  if (winCache.data && Date.now() - winCache.at < 60000) return winCache.data;
+  let cfg = {};
+  if (supabase) {
+    const { data } = await supabase.from('uea_loyalty_settings').select('config').eq('id', 1).maybeSingle();
+    cfg = (data && data.config) || {};
+  }
+  let labels = Array.isArray(cfg.time_windows) && cfg.time_windows.length ? cfg.time_windows : DEFAULT_WINDOWS;
+  if (JSON.stringify(labels) === JSON.stringify(OLD_DEFAULT_WINDOWS)) labels = DEFAULT_WINDOWS;
+  let windows = labels.map(parseWindow).filter(Boolean).sort((a, b) => a.start - b.start);
+  if (!windows.length) windows = DEFAULT_WINDOWS.map(parseWindow);
+  const capacity = Math.max(1, Math.round(Number(cfg.jobs_per_window) || 0) || CAPACITY);
+  winCache = { at: Date.now(), data: { windows, capacity } };
+  return winCache.data;
+}
+function windowsForDate(iso, windows) {
+  const dow = weekday(iso);
+  return dow >= 1 && dow <= 5 ? windows.filter(w => w.start >= WEEKDAY_START_MIN) : windows.slice();
+}
+// Which window a stored time belongs to (older bookings were saved as "9:00 AM").
+function windowOf(slotTime, windows) {
+  const w = windows.find(x => x.label === slotTime);
+  if (w) return w.label;
+  const m = /^(\d{1,2}):(\d{2}) (AM|PM)$/.exec(slotTime || '');
+  if (!m) return null;
+  const min = slotMinutes(slotTime);
+  const hit = windows.find(x => min >= x.start && min < x.end);
+  return hit ? hit.label : null;
+}
+async function windowUsage(windows, fromDate, toDate) {
+  const { data, error } = await supabase.from('uea_booked_slots').select('slot_date, slot_time')
+    .eq('status', 'held').gte('slot_date', fromDate).lte('slot_date', toDate).limit(5000);
+  if (error) throw error;
+  const usage = {};
+  data.forEach(r => {
+    const lab = windowOf(r.slot_time, windows);
+    if (!lab) return;
+    const d = usage[r.slot_date] || (usage[r.slot_date] = {});
+    d[lab] = (d[lab] || 0) + 1;
+  });
+  return usage;
+}
+
 // ── Helpers ─────────────────────────────────────────────────────────────────
 function nowInTZ() {
   const parts = new Intl.DateTimeFormat('en-US', {
@@ -54,6 +119,7 @@ function weekday(iso) {
 }
 function slotMinutes(t) {
   const m = /^(\d{1,2}):(\d{2}) (AM|PM)$/.exec(t);
+  if (!m) { const w = parseWindow(t); return w ? w.start : 0; }
   let h = Number(m[1]) % 12;
   if (m[3] === 'PM') h += 12;
   return h * 60 + Number(m[2]);
@@ -118,6 +184,15 @@ router.get('/health', h(async (req, res) => {
   res.json(out);
 }));
 
+router.get('/windows', h(async (req, res) => {
+  requireDb();
+  res.set('Cache-Control', 'no-store');
+  const { windows, capacity } = await windowSettings();
+  const today = nowInTZ().date;
+  const usage = await windowUsage(windows, today, addDays(today, DAYS_AHEAD));
+  res.json({ windows, capacity, usage, weekday_start: WEEKDAY_START_MIN, lead_minutes: LEAD_MINUTES, days_ahead: DAYS_AHEAD, max_span: MAX_SPAN });
+}));
+
 router.get('/taken', h(async (req, res) => {
   requireDb();
   res.set('Cache-Control', 'no-store');
@@ -150,10 +225,11 @@ router.post('/hold', h(async (req, res) => {
   // Render sits behind a proxy, so the visitor's address is the first x-forwarded-for entry.
   const ip = String(req.get('x-forwarded-for') || req.ip || '').split(',')[0].trim();
   if (rateLimited(ip)) throw httpErr(429, 'Too many booking attempts. Please call (251) 289-0740.');
-  const date = clean(b.date, 10), time = clean(b.time, 8);
-  checkSlot(date, time, !!b.rush);
+  const date = clean(b.date, 10), time = clean(b.time, 20);
   const name = clean(b.name, 80), phone = clean(b.phone, 30);
   if (!name || !phone) throw httpErr(400, 'Name and phone are required.');
+  if (!TIME_SLOTS.includes(time)) return holdWindows(req, res, b, date, time, name, phone);   // arrival windows
+  checkSlot(date, time, !!b.rush);
 
   const token = crypto.randomBytes(24).toString('hex');
   const { data: id, error } = await supabase.rpc('uea_hold_slot', {
@@ -167,16 +243,59 @@ router.post('/hold', h(async (req, res) => {
   res.json({ ok: true, id, token });
 }));
 
+// Reserve a window, plus the windows right after it when the job runs long.
+async function holdWindows(req, res, b, date, label, name, phone) {
+  const { windows, capacity } = await windowSettings();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw httpErr(400, 'Pick a date.');
+  const now = nowInTZ();
+  if (date < now.date || date > addDays(now.date, DAYS_AHEAD)) throw httpErr(400, 'That date can’t be booked online. Pick another date.');
+  const day = windowsForDate(date, windows);
+  const idx = day.findIndex(w => w.label === label);
+  if (idx < 0) throw httpErr(400, 'Pick an arrival window.');
+  const first = day[idx];
+  if (date === now.date) {
+    if (b.rush ? first.end <= now.minutes + 30 : first.start < now.minutes + LEAD_MINUTES) {
+      throw httpErr(400, b.rush ? 'That window has already passed. Pick a later one.' : 'Online bookings need at least 2 hours’ notice. Pick a later window, or choose Rush dispatch.');
+    }
+  }
+  const span = Math.min(MAX_SPAN, Math.max(1, parseInt(b.span, 10) || 1));
+  const run = [first];
+  for (let k = 1; k < span && day[idx + k] && day[idx + k].start === run[run.length - 1].end; k++) run.push(day[idx + k]);
+  const usage = (await windowUsage(windows, date, date))[date] || {};
+  if (run.some(w => (usage[w.label] || 0) >= capacity)) throw httpErr(409, 'Someone just booked that window. Please pick another.');
+
+  const token = crypto.randomBytes(24).toString('hex'), got = [];
+  for (const w of run) {
+    const { data: id, error } = await supabase.rpc('uea_hold_slot', {
+      p_date: date, p_time: w.label, p_capacity: capacity,
+      p_name: name, p_phone: phone, p_service: clean(b.service, 120) + (run.length > 1 ? ` (${run.length} windows)` : ''), p_vehicle: clean(b.vehicle, 120),
+      p_rush: !!b.rush, p_token_hash: sha256(token)
+    });
+    if (error || !id) {
+      if (got.length) await supabase.from('uea_booked_slots').update({ status: 'released', released_at: new Date().toISOString() }).in('id', got);
+      cache.at = 0;
+      if (error) throw error;
+      throw httpErr(409, 'Someone just booked that window. Please pick another.');
+    }
+    got.push(id);
+  }
+  cache.at = 0;
+  res.json({ ok: true, id: got[0], token, windows: run.map(w => w.label) });
+}
+
 // The website calls this with the token it got from /hold, e.g. when checkout fails
 // or the same customer resubmits the same time.
 router.post('/cancel', h(async (req, res) => {
   requireDb();
   const id = clean(req.body && req.body.id, 40), token = clean(req.body && req.body.token, 100);
   if (!id || !token) throw httpErr(400, 'Missing hold.');
+  // One token covers every window a long job held.
+  const { data: own } = await supabase.from('uea_booked_slots').select('id').eq('id', id).eq('release_token_hash', sha256(token)).limit(1);
+  if (!own || !own.length) return res.json({ ok: true });
   const { error } = await supabase
     .from('uea_booked_slots')
     .update({ status: 'released', released_at: new Date().toISOString() })
-    .eq('id', id).eq('release_token_hash', sha256(token)).eq('status', 'held');
+    .eq('release_token_hash', sha256(token)).eq('status', 'held');
   if (error) throw error;
   cache.at = 0;
   res.json({ ok: true });
@@ -196,7 +315,7 @@ router.get('/admin/list', h(async (req, res) => {
     .limit(1000);
   if (error) throw error;
   data.sort((a, b) => a.slot_date === b.slot_date ? slotMinutes(a.slot_time) - slotMinutes(b.slot_time) : (a.slot_date < b.slot_date ? -1 : 1));
-  res.json({ capacity: CAPACITY, slots: data });
+  res.json({ capacity: (await windowSettings()).capacity, slots: data });
 }));
 
 router.post('/admin/release', h(async (req, res) => {
