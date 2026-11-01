@@ -342,7 +342,7 @@ const ADMIN_HTML = `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="robots" content="noindex"><title>Reserved times · Upper Echelon</title>
 <style>
-:root{--bg:#0B0A10;--card:#1A1428;--line:rgba(226,214,255,.12);--text:#F3EFE8;--muted:rgba(243,239,232,.65);--gold:#CBA135;--red:#f87171}
+:root{--bg:#0B0A10;--card:#1A1428;--line:rgba(226,214,255,.12);--text:#F3EFE8;--muted:rgba(243,239,232,.65);--gold:#F6B91A;--red:#f87171}
 *{box-sizing:border-box;margin:0;padding:0}
 body{background:var(--bg);color:var(--text);font:16px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif;padding:24px 16px 64px}
 .wrap{max-width:760px;margin:0 auto}
@@ -351,7 +351,7 @@ h1{font-size:1.5rem;margin-bottom:4px}
 .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:20px;margin-bottom:16px}
 input{width:100%;min-height:46px;background:var(--bg);border:1px solid var(--line);border-radius:6px;color:var(--text);font-size:16px;padding:10px 12px;margin:10px 0}
 button{min-height:44px;padding:0 18px;border:0;border-radius:6px;background:var(--gold);color:#0B0A10;font-weight:700;font-size:.95rem;cursor:pointer}
-button.ghost{background:transparent;color:var(--gold);border:1px solid rgba(203,161,53,.5)}
+button.ghost{background:transparent;color:var(--gold);border:1px solid rgba(246,185,26,.5)}
 button:disabled{opacity:.5;cursor:default}
 .err{color:var(--red);font-size:.9rem;min-height:1.3em}
 .day{font-weight:700;color:var(--gold);margin:20px 0 8px}
