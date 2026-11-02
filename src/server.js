@@ -730,15 +730,45 @@ app.post('/payout-technician', async (req, res) => {
 // ════════════════════════════════════════════════════════════════════════════════
 // SMS (Textbelt relay)
 // ════════════════════════════════════════════════════════════════════════════════
+// This endpoint spends Textbelt credits, so it only answers your own website and
+// has a hard ceiling. Before this, anyone on the internet could POST here and text
+// any number on your account.
+const SMS_ORIGINS = /^https:\/\/([a-z0-9-]+\.)*(ueauto\.store|myshopify\.com|onrender\.com)$/i;
+const SMS_PER_IP_PER_HOUR = 5;
+const SMS_PER_DAY = 60;
+const smsHits = new Map();
+let smsDay = { date: '', count: 0 };
 app.post('/send-sms', async (req, res) => {
   try {
+    const origin = String(req.get('origin') || req.get('referer') || '').replace(/\/+$/, '').replace(/^(https:\/\/[^/]+).*$/, '$1');
+    if (!SMS_ORIGINS.test(origin)) {
+      console.warn('[sms] blocked: unknown origin', origin || '(none)');
+      return res.status(403).json({ success: false, error: 'Not allowed.' });
+    }
+    const ip = String(req.get('x-forwarded-for') || req.ip || '').split(',')[0].trim();
+    const now = Date.now();
+    const hits = (smsHits.get(ip) || []).filter(t => now - t < 60 * 60 * 1000);
+    if (hits.length >= SMS_PER_IP_PER_HOUR) {
+      console.warn('[sms] blocked: too many from', ip);
+      return res.status(429).json({ success: false, error: 'Too many texts. Try again later.' });
+    }
+    const today = new Date().toISOString().slice(0, 10);
+    if (smsDay.date !== today) smsDay = { date: today, count: 0 };
+    if (smsDay.count >= SMS_PER_DAY) {
+      console.warn('[sms] blocked: daily cap reached');
+      return res.status(429).json({ success: false, error: 'Daily text limit reached.' });
+    }
+    hits.push(now); smsHits.set(ip, hits); smsDay.count++;
+    if (smsHits.size > 5000) smsHits.clear();
     const { phone, message } = req.body;
+    console.log('[sms] sending to ***' + String(phone || '').replace(/\D/g, '').slice(-4), 'from', origin, ip);
     const r = await fetch('https://textbelt.com/text', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ phone, message, key: process.env.TEXTBELT_KEY || 'textbelt' }),
     });
     const data = await r.json();
+    if (!data.success) console.warn('[sms] textbelt said:', data.error, '| quota left:', data.quotaRemaining);
     res.json(data);
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
