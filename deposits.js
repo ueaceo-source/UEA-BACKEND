@@ -126,10 +126,10 @@ async function square(path, { method = 'GET', body } = {}) {
 
 // One Square checkout page for a list of { name, cents, note }.
 async function createLink(reqRow, items, { buyerEmail, buyerPhone, note }) {
+  // Only the email is pre-filled. Square rejects many phone formats, and the
+  // customer can type their number on the checkout page if Square asks for it.
   const pre = {};
   if (isEmail(buyerEmail)) pre.buyer_email = buyerEmail;
-  const d10 = digits10(buyerPhone);
-  if (d10) pre.buyer_phone_number = `+1${d10}`;
   const body = {
     idempotency_key: crypto.randomUUID(),
     order: {
@@ -148,7 +148,16 @@ async function createLink(reqRow, items, { buyerEmail, buyerPhone, note }) {
     payment_note: note ? note.slice(0, 500) : undefined
   };
   if (Object.keys(pre).length) body.pre_populated_data = pre;
-  const d = await square('/v2/online-checkout/payment-links', { method: 'POST', body });
+  let d;
+  try {
+    d = await square('/v2/online-checkout/payment-links', { method: 'POST', body });
+  } catch (e) {
+    if (!body.pre_populated_data) throw e;
+    // Square didn't like a pre-filled detail. Try once more with nothing pre-filled.
+    delete body.pre_populated_data;
+    body.idempotency_key = crypto.randomUUID();
+    d = await square('/v2/online-checkout/payment-links', { method: 'POST', body });
+  }
   const link = d.payment_link || {};
   const { error } = await supabase.from('uea_payment_requests')
     .update({ square_link_id: link.id, square_order_id: link.order_id, url: link.url })
