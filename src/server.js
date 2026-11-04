@@ -304,6 +304,18 @@ const EMAIL = {
   else console.warn('[loyalty] loyalty.js not found. Upload loyalty.js and loyalty-admin.html to the repo.');
 })();
 
+// ── Square booking deposits + parts prepayment (mounted BEFORE the JSON parser) ─
+// Square's webhook needs the raw request body to check its signature.
+(() => {
+  let deposits = null;
+  for (const p of ['./deposits', '../deposits']) {
+    try { deposits = require(p); break; }
+    catch (e) { if (e.code !== 'MODULE_NOT_FOUND' || !String(e.message).includes(`'${p}'`)) throw e; }
+  }
+  if (deposits) app.use('/deposits', deposits);
+  else console.warn('[deposits] deposits.js not found. Upload it next to slots.js to turn on booking deposits.');
+})();
+
 // ── Middleware ────────────────────────────────────────────────────────────────
 app.use(cors({ origin: '*' }));
 // Stripe's FleetCare webhook needs the raw body for its signature check, so skip JSON parsing there.
