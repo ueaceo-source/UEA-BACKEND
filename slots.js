@@ -8,6 +8,7 @@
 //   GET  /slots/taken          → older hourly view, kept so an older website copy keeps working
 //   POST /slots/hold           → reserves a window (or a run of windows for long jobs)
 //   POST /slots/cancel         → the website frees its own hold if checkout fails
+//   (With Square deposits on, a hold only reserves the time once deposits.js marks it paid.)
 //   GET  /slots/admin          → owner page: see reserved times and release no-shows
 //
 // Env vars (Render → your service → Environment):
@@ -33,6 +34,16 @@ const DAYS_AHEAD = 60;             // how far out customers can book
 const LEAD_MINUTES = 120;          // online bookings need this much notice unless rush is paid
 const TZ = 'America/Chicago';
 const CAPACITY = Math.max(1, parseInt(process.env.SLOT_CAPACITY, 10) || 1);
+
+// ── Booking deposits (Square) ───────────────────────────────────────────────
+// With Square set up, a new booking only reserves its time once the $50 deposit
+// is paid. While the customer is on the Square payment page the time is held for
+// DEPOSIT_HOLD_MINUTES (default 10) so two people can't pay for the same window.
+// Set DEPOSIT_HOLD_MINUTES=0 to never hold an unpaid time at all.
+const DEPOSITS_ON = !!(process.env.SQUARE_ACCESS_TOKEN && process.env.SQUARE_LOCATION_ID) && process.env.DEPOSITS_ENABLED !== 'false';
+const HOLD_MINUTES = Math.max(0, Math.min(60, parseInt(process.env.DEPOSIT_HOLD_MINUTES, 10) >= 0 ? parseInt(process.env.DEPOSIT_HOLD_MINUTES, 10) : 10));
+// Only paid (or older, pre-deposit) bookings and unexpired checkout holds take up room.
+const reserving = q => !DEPOSITS_ON ? q : q.or(`deposit_status.is.null,deposit_status.in.(paid,waived),and(deposit_status.eq.pending,hold_expires_at.gt."${new Date().toISOString()}")`);
 
 const SB_URL = process.env.SUPABASE_URL;
 const SB_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_KEY;
@@ -87,8 +98,8 @@ function windowOf(slotTime, windows) {
   return hit ? hit.label : null;
 }
 async function windowUsage(windows, fromDate, toDate) {
-  const { data, error } = await supabase.from('uea_booked_slots').select('slot_date, slot_time')
-    .eq('status', 'held').gte('slot_date', fromDate).lte('slot_date', toDate).limit(5000);
+  const { data, error } = await reserving(supabase.from('uea_booked_slots').select('slot_date, slot_time')
+    .eq('status', 'held').gte('slot_date', fromDate).lte('slot_date', toDate)).limit(5000);
   if (error) throw error;
   const usage = {};
   data.forEach(r => {
@@ -176,10 +187,12 @@ let cache = { at: 0, data: null };
 
 // ── Public routes ───────────────────────────────────────────────────────────
 router.get('/health', h(async (req, res) => {
-  const out = { route: 'ok', supabase: !!supabase, admin_password: !!ADMIN_PASSWORD, capacity: CAPACITY, table: 'unknown' };
+  const out = { route: 'ok', supabase: !!supabase, admin_password: !!ADMIN_PASSWORD, capacity: CAPACITY, table: 'unknown', deposits: DEPOSITS_ON, hold_minutes: HOLD_MINUTES };
   if (supabase) {
     const { error } = await supabase.from('uea_booked_slots').select('id').limit(1);
     out.table = error ? `error: ${error.message}` : 'ok';
+    const { error: e2 } = await supabase.from('uea_booked_slots').select('deposit_status').limit(1);
+    out.deposit_columns = e2 ? 'missing: run 3-deposits.sql in Supabase' : 'ok';
   }
   res.json(out);
 }));
@@ -198,12 +211,12 @@ router.get('/taken', h(async (req, res) => {
   res.set('Cache-Control', 'no-store');
   if (cache.data && Date.now() - cache.at < 15000) return res.json(cache.data);
   const today = nowInTZ().date;
-  const { data, error } = await supabase
+  const { data, error } = await reserving(supabase
     .from('uea_booked_slots')
     .select('slot_date, slot_time')
     .eq('status', 'held')
     .gte('slot_date', today)
-    .lte('slot_date', addDays(today, DAYS_AHEAD))
+    .lte('slot_date', addDays(today, DAYS_AHEAD)))
     .limit(5000);
   if (error) throw error;
   const counts = {};
@@ -232,7 +245,7 @@ router.post('/hold', h(async (req, res) => {
   checkSlot(date, time, !!b.rush);
 
   const token = crypto.randomBytes(24).toString('hex');
-  const { data: id, error } = await supabase.rpc('uea_hold_slot', {
+  const { data: id, error } = await holdRpc({
     p_date: date, p_time: time, p_capacity: CAPACITY,
     p_name: name, p_phone: phone, p_service: clean(b.service, 120), p_vehicle: clean(b.vehicle, 120),
     p_rush: !!b.rush, p_token_hash: sha256(token)
@@ -240,8 +253,15 @@ router.post('/hold', h(async (req, res) => {
   if (error) throw error;
   cache.at = 0;
   if (!id) throw httpErr(409, 'Someone just booked that time. Please pick another.');
-  res.json({ ok: true, id, token });
+  res.json({ ok: true, id, token, deposit_required: DEPOSITS_ON, hold_minutes: DEPOSITS_ON ? HOLD_MINUTES : null });
 }));
+
+// With deposits on, new holds start as 'pending' and only count while their checkout window is open.
+function holdRpc(args) {
+  return DEPOSITS_ON
+    ? supabase.rpc('uea_hold_slot_pending', Object.assign({}, args, { p_hold_minutes: HOLD_MINUTES }))
+    : supabase.rpc('uea_hold_slot', args);
+}
 
 // Reserve a window, plus the windows right after it when the job runs long.
 async function holdWindows(req, res, b, date, label, name, phone) {
@@ -266,7 +286,7 @@ async function holdWindows(req, res, b, date, label, name, phone) {
 
   const token = crypto.randomBytes(24).toString('hex'), got = [];
   for (const w of run) {
-    const { data: id, error } = await supabase.rpc('uea_hold_slot', {
+    const { data: id, error } = await holdRpc({
       p_date: date, p_time: w.label, p_capacity: capacity,
       p_name: name, p_phone: phone, p_service: clean(b.service, 120) + (run.length > 1 ? ` (${run.length} windows)` : ''), p_vehicle: clean(b.vehicle, 120),
       p_rush: !!b.rush, p_token_hash: sha256(token)
@@ -280,7 +300,7 @@ async function holdWindows(req, res, b, date, label, name, phone) {
     got.push(id);
   }
   cache.at = 0;
-  res.json({ ok: true, id: got[0], token, windows: run.map(w => w.label) });
+  res.json({ ok: true, id: got[0], token, windows: run.map(w => w.label), deposit_required: DEPOSITS_ON, hold_minutes: DEPOSITS_ON ? HOLD_MINUTES : null });
 }
 
 // The website calls this with the token it got from /hold, e.g. when checkout fails
@@ -306,11 +326,11 @@ router.get('/admin/list', h(async (req, res) => {
   requireAdmin(req);
   requireDb();
   const today = nowInTZ().date;
-  const { data, error } = await supabase
+  const { data, error } = await reserving(supabase
     .from('uea_booked_slots')
-    .select('id, slot_date, slot_time, customer_name, phone, service, vehicle, rush, created_at')
+    .select('id, slot_date, slot_time, customer_name, phone, service, vehicle, rush, created_at' + (DEPOSITS_ON ? ', deposit_status' : ''))
     .eq('status', 'held')
-    .gte('slot_date', today)
+    .gte('slot_date', today))
     .order('slot_date', { ascending: true })
     .limit(1000);
   if (error) throw error;
