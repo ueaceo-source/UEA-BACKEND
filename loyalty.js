@@ -1091,7 +1091,8 @@ router.post('/book', h(async (req, res) => {
     ['Service Location', address], ['Problem Description', b.concern], ['Additional Notes', b.notes],
     ['Parts', partsLabel], ['Customer Parts Details', partsNote],
     ['Already has our quote', hasQuote ? (quoteRef || 'Yes') : null], ['Photos from customer', b.photo_count ? String(Math.min(4, Number(b.photo_count) || 0)) : null],
-    ['Time Reserved', b.slot_reserved ? 'Yes' : 'No'], ['Service Agreement', b.agreement],
+    ['Time Reserved', b.deposit_pending && DEPOSITS_ON ? 'Not yet (waiting on deposit)' : (b.slot_reserved ? 'Yes' : 'No')], ['Service Agreement', b.agreement],
+    ['Booking Deposit', b.deposit_pending && DEPOSITS_ON ? 'NOT PAID YET ($50 via Square)' : null],
     ['Reward Voucher', voucher ? `${voucher.code} (${voucher.reward_name})` : null], ['Booking Ref', ref]
   ].filter(([, v]) => v != null && String(v).trim() !== '').map(([k, v]) => ({ name: k, value: String(v).slice(0, 2000) }));
 
@@ -1126,22 +1127,12 @@ router.post('/book', h(async (req, res) => {
     await logEvent(job.id, 'Website', 'note', `Customer applied reward ${voucher.code}: ${voucher.reward_name}`);
   }
 
-  // Text the owner (Settings → Shop → "Your cell") so new bookings never sit unseen.
-  const cfg = await getConfig();
-  if (cfg.notify_phone) {
-    const when = [date ? new Date(date + 'T12:00:00Z').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', timeZone: 'UTC' }) : null, time].filter(Boolean).join(' ');
-    sendSms(cfg.notify_phone, `UEA new booking${b.rush ? ' (RUSH)' : ''}: ${name}, ${t(b.service, 60) || 'service'}, ${t(b.vehicle, 40) || ''} — ${when}. ${address}. ${phone}${partsLabel ? `. Parts: ${partsLabel}` : ''}`, { internal: true })
-      .catch(e => console.warn('[loyalty] booking text not sent:', e.message));
-  }
-  // Text the customer right away so they know the request landed (Settings → text templates → Booking received).
-  if (cfg.booking_text_on !== false && phone && process.env.TEXTBELT_KEY) {
-    try {
-      const msg = fillTemplate(cfg.sms_templates.booking_received, await smsVars(job, cfg));
-      if (msg) {
-        await sendSms(phone, msg, { member, job, kind: 'booking_received', by: 'Website' });
-        await logEvent(job.id, 'Website', 'note', 'Booking received text sent to the customer');
-      }
-    } catch (e) { console.warn('[loyalty] customer booking text not sent:', e.message); }
+  // Website bookings that need a deposit stay quiet until Square confirms payment:
+  // deposits.js calls router.depositPaid(), which sends these same texts then.
+  if (b.deposit_pending && DEPOSITS_ON) {
+    await logEvent(job.id, 'Website', 'note', 'Waiting on the $50 booking deposit. The time is not reserved until it is paid.');
+  } else {
+    await notifyNewBooking(job, member);
   }
   res.json({ ok: true, booking_id: job.id, member: !!member, voucher: voucher ? voucher.code : null, photo_key: photoKey(job.id) });
 }));
@@ -4214,6 +4205,48 @@ router.get('/admin/books/export', auth(OWNER), hb(async (req, res) => {
   res.json({ filename: `UEA-books-${from}-to-${to}.csv`, csv: rows.map(r => r.map(q).join(',')).join('\r\n') });
 }));
 
+
+
+// ── New-booking texts (owner + customer). Sent at booking time, or after the
+//    deposit is paid when deposits are on. ─────────────────────────────────────
+const DEPOSITS_ON = !!(process.env.SQUARE_ACCESS_TOKEN && process.env.SQUARE_LOCATION_ID) && process.env.DEPOSITS_ENABLED !== 'false';
+async function notifyNewBooking(job, member, extra) {
+  const cfg = await getConfig();
+  const detail = k => ((job.details || []).find(d => d && d.name === k) || {}).value || null;
+  const partsLabel = detail('Parts');
+  const date = job.appt_date, time = job.appt_time;
+  if (cfg.notify_phone) {
+    const when = [date ? new Date(date + 'T12:00:00Z').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', timeZone: 'UTC' }) : null, time].filter(Boolean).join(' ');
+    sendSms(cfg.notify_phone, `UEA new booking${job.rush ? ' (RUSH)' : ''}${extra ? ` ${extra}` : ''}: ${job.customer_name}, ${String(job.service || 'service').slice(0, 60)}, ${String(job.vehicle || '').slice(0, 40)} — ${when}. ${job.address || ''}. ${job.phone || ''}${partsLabel ? `. Parts: ${partsLabel}` : ''}`, { internal: true })
+      .catch(e => console.warn('[loyalty] booking text not sent:', e.message));
+  }
+  if (cfg.booking_text_on !== false && job.phone && process.env.TEXTBELT_KEY) {
+    try {
+      const msg = fillTemplate(cfg.sms_templates.booking_received, await smsVars(job, cfg));
+      if (msg) {
+        await sendSms(job.phone, msg, { member, job, kind: 'booking_received', by: 'Website' });
+        await logEvent(job.id, 'Website', 'note', 'Booking received text sent to the customer');
+      }
+    } catch (e) { console.warn('[loyalty] customer booking text not sent:', e.message); }
+  }
+}
+
+// Called by deposits.js when Square confirms a booking deposit.
+router.depositPaid = async function depositPaid(bookingId, info) {
+  info = info || {};
+  const job = (await sb(`uea_loyalty_bookings?id=eq.${enc(bookingId)}&select=*`))[0];
+  if (!job) return null;
+  const amount = info.amount_cents != null ? money(info.amount_cents) : '$50';
+  const details = (job.details || []).map(d => {
+    if (d.name === 'Booking Deposit') return { name: d.name, value: `PAID ${amount} via Square${info.payment_id ? ` (${info.payment_id})` : ''}` };
+    if (d.name === 'Time Reserved') return { name: d.name, value: info.conflict ? 'CONFLICT: paid after the window filled. Call to reschedule.' : 'Yes' };
+    return d;
+  });
+  await patchJob(job.id, { details });
+  await logEvent(job.id, 'Square', 'status', `Booking deposit paid: ${amount}. Credit it toward the final invoice.${info.conflict ? ' The window filled before payment, so call the customer to pick a new time.' : ''}`);
+  await notifyNewBooking(Object.assign({}, job, { details }), null, info.conflict ? '(PAID, TIME CONFLICT)' : '(deposit paid)');
+  return job;
+};
 
 router.__test = { maybeBirthdays };   // lets the test harness run the birthday check on demand
 module.exports = router;
